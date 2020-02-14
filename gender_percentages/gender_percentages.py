@@ -34,8 +34,8 @@ def gender_ratio(inpath):
     hrarch_lvls = OrderedDict(
         sorted({'1': y[15], '2': y[16], '3': y[17], '4': y[18]}.items(), key=lambda t: t[0]))
 
-    # ordered dict of total male-female counts for year, across all units
-    years_total = y[19]
+    # ordered dict of female percentage counts for year, across all units
+    years_percents = y[19]
 
     # open the person-month file
     with open(inpath, 'r') as inFile:
@@ -45,62 +45,71 @@ def gender_ratio(inpath):
         # increment male and female counters for the appropriate years and units
         for row in reader:
             if row[6] == 'f':
-                years_total[row[4]][0] += 1  # counters for years
-                hrarch_lvls[row[8]][row[4]][0] += 1  # counters for hierarhical levels
+                years_percents[row[4]][0] += 1  # counters for year percentages
+                hrarch_lvls[row[8]][row[4]][0] += 1  # counters for hierarhical level percentage
                 if row[9] != 'na':  # avoids supreme court, since it's covered by hierarchical level 1
-                    apell_areas[unidecode(row[9])][row[4]][0] += 1  # counters for appellate units
+                    apell_areas[unidecode(row[9])][row[4]][0] += 1  # counters for appellate area percentages
 
             elif row[6] == 'm':
-                years_total[row[4]][1] += 1  # by years
+                years_percents[row[4]][1] += 1  # by years
                 hrarch_lvls[row[8]][row[4]][1] += 1  # by hierarhical level
                 if row[9] != 'na':  # avoids supreme court
-                    apell_areas[unidecode(row[9])][row[4]][1] += 1  # by appellate unit
+                    apell_areas[unidecode(row[9])][row[4]][1] += 1  # by appellate area
 
-    # calculate percent female of person-months, rounded to one decimal
-    # note, this assumes that the ratio of female to male person-months does not vary systematically,
-    # e.g. men don't move more than women in any given year. If this were the case this would be a faulty
-    # estimate of the gender composition of different years and units
+    # calculate percent female of person-months
     yearly_percentages = ['Pecent Female Per Year', '']
-    for y in years_total:
-        yearly_percentages.append(prcnt(years_total[y][0], years_total[y][1], 1))
+    yearly_totals = ['Totals Male Plus Female','']
+    for y in years_percents:
+        yearly_percentages.append(prcnt(years_percents[y][0], years_percents[y][1], 1))
+        yearly_totals.append(years_percents[y][0] + years_percents[y][1])
 
     # calculate percent female of person months (to one decimal) for appellate areas
     ac_prcnt = [[] for i in range(0, 15)]  # make list to store percentages
+    ac_totals = [['', ''] for i in range(0, 15)]  # make list to store totals, m+f
     ac_cntr = 0
     for ac in apell_areas:
         ac_prcnt[ac_cntr] = [ac, '']
         for y in apell_areas[ac]:
             ac_prcnt[ac_cntr].append(prcnt(apell_areas[ac][y][0], apell_areas[ac][y][1], 1))
+            ac_totals[ac_cntr].append(apell_areas[ac][y][0] + apell_areas[ac][y][1])
         ac_cntr += 1
 
     # calculate percent female of person months (to one decimal) for hierarchical levels
     hl_prcnt = [[] for i in range(0, 4)]  # make list to store percentages
+    hl_totals = [['', ''] for i in range(0, 4)]  # make list to store total, m+f
     hl_cntr = 0
     for hl in hrarch_lvls:
         hl_prcnt[hl_cntr] = [str(hl), '']
         for y in hrarch_lvls[hl]:
             hl_prcnt[hl_cntr].append(prcnt(hrarch_lvls[hl][y][0], hrarch_lvls[hl][y][1], 1))
+            hl_totals[hl_cntr].append(hrarch_lvls[hl][y][0] + hrarch_lvls[hl][y][1])
+
         hl_cntr += 1
 
     # write to file of descriptive statistics
     header = ['Unit', '', '2005', '2006', '2007', '2008', '2009',
               '2010', '2011', '2012', '2013', '2014', '2015']
 
+    print(hl_totals)
     with open("gender_percentages.csv", 'w') as outfile:
         writer = csv.writer(outfile, delimiter=',')
         writer.writerow(header)
         writer.writerow('\n')
         writer.writerow(yearly_percentages)
+        writer.writerow(yearly_totals)
+
 
         writer.writerow('\n')
-        writer.writerow(['Appellate Areas'])
-        for acr in ac_prcnt:
-            writer.writerow(acr)
+        writer.writerow(['Appellate Areas, percentages and totals'])
+        for i in range(0, len(ac_prcnt)):
+            writer.writerow(ac_prcnt[i])
+            writer.writerow(ac_totals[i])
 
         writer.writerow('\n')
-        writer.writerow(['Hierarchical Levels'])
-        for hlr in hl_prcnt:
-            writer.writerow(hlr)
+        writer.writerow(['Hierarchical Levels, percentages and totals'])
+        for i in range(0, len(hl_prcnt)):
+            writer.writerow(hl_prcnt[i])
+            writer.writerow(hl_totals[i])
 
 
 def prcnt(a, b, c):
