@@ -1,11 +1,23 @@
+"""
+This code process (cleaned) files containing the monthly employment rolls of all judges and prosecutors
+in all Romanian courts and prosecutors' offices (a.k.a. "parquets") and spits out a csv (on each for
+judges and prosecutors) of person-periods, here person-months. The columns are surnamaes, given names,
+court/parquet, year, and month. All files are in the legacy .doc (1997-2003) format.
+NB: the data that came from scrape_csm_old.py were extensively cleaned (by hand and ad hoc) before
+being passed here, because of a number of problems with the underlying data itself, often input
+problems. These scripts WILL NOT work with the raw data files from scrape_csm_old.py.
+Author of Python Code:
+    Pârvulescu, Radu Andrei (2020)
+    rap348@cornell.edu
+"""
+
 import os
 import textract
 import csv
 import re
 from judges_data_get import update_judge_people_periods
-from prosec_data_get import update_prosec_people_periods
+from prosec_data_get import update_prosec_people_periods, prosec_multiline_name_catcher
 from generic_cleaners import pre_clean, multiline_name_contractor
-
 
 # TODO make it work from just memory so you don't have to unzip anything
 
@@ -20,12 +32,11 @@ def docs_to_csv(rootdir, outfile_name, split_mark, parquet=False):
     with open(outfile_name, 'w') as outfile:
         writer = csv.writer(outfile, delimiter=',')
         writer.writerow(head)
-        # Tribunalul B
         counter = 0
         for subdir, dirs, files in os.walk(rootdir):
             for file in files:
                 counter += 1
-                if counter < 10000:
+                if counter < 100000:
                     filepath = subdir + os.sep + file
                     print(filepath)
                     if parquet:
@@ -33,18 +44,16 @@ def docs_to_csv(rootdir, outfile_name, split_mark, parquet=False):
                     else:
                         year, month = filepath[23:27], filepath[28:30]
                     # extract text, capitalise, and pre-clean
-                    text = pre_clean(textract.process(filepath).decode('utf-8').upper())
+                    text = pre_clean(textract.process(filepath).decode('utf-8').upper(), parquet)
                     # treat files of military units separately, have different structure
-                    if (re.search(r'PARCHETELOR MILITARE|PARCHETELE MILITARE|PARCHETUL MILITAR', text)
-                        is not None) or (re.search(r'CURTEA MILITAR|TRIBUNALUL MILITAR', text)
-                                         is not None):
+                    if get_military_data(text):  # handle military courts/parquets separately
                         continue
-                    people_periods = get_people_periods(text, split_mark, year, month)
+                    people_periods = get_people_periods(text, split_mark, year, month, parquet)
                     for pp in people_periods:
                         writer.writerow(pp)
 
 
-def get_people_periods(text, split_mark, year, month, parquet=False):
+def get_people_periods(text, split_mark, year, month, parquet):
     """return a tuple with unit name (viz. Court X), surname, and given names"""
     people_periods = []
     units = re.split(split_mark, text)
@@ -55,18 +64,26 @@ def get_people_periods(text, split_mark, year, month, parquet=False):
                 update_prosec_people_periods(people_periods, unit_lines, split_mark, year, month)
             else:
                 update_judge_people_periods(people_periods, unit_lines, text, year, month)
-    people_periods = multiline_name_contractor(people_periods)  # clean multiline names
+    people_periods = multiline_name_contractor(people_periods)
+    if parquet:
+        people_periods = prosec_multiline_name_catcher(people_periods)
     return people_periods
 
 
 # TODO write this function, data from military employment rolls looks different
-def get_military_data(filepath):
-    pass
+def get_military_data(text):
+    # detect if it's data from the miliitary courts/parquets
+    military = (re.search(r'PARCHETELOR MILITARE|PARCHETELE MILITARE|PARCHETUL MILITAR', text)
+                is not None) or (re.search(r'CURTEA MILITAR|TRIBUNALUL MILITAR', text) is not None)
+    return military
 
 
 if __name__ == '__main__':
-    p_directory = 'prosecutors_12.2005_04.2017'
+    j_archive = 'judges_12.2005_04.2017.zip'
+    p_archive = 'prosecutors_12.2005_04.2017.zip'
     j_directory = 'judges_12.2005_04.2017'
-    prosecutor_split_mark = 'PARCHETUL'
+    p_directory = 'prosecutors_12.2005_04.2017'
+    prosecutors_split_mark = 'PARCHETUL'
     judges_split_mark = 'JUDECĂTORIA |JUDECATORIA |TRIBUNALUL |CURTEA DE APEL'
-    docs_to_csv(j_directory, "judges.csv", judges_split_mark)
+    # docs_to_csv(p_directory, "prosecutors.csv", prosecutors_split_mark, parquet=True)
+    # docs_to_csv(j_directory, "judges.csv", judges_split_mark)

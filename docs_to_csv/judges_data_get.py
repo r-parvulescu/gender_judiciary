@@ -81,5 +81,4 @@ def get_court_name(lines):
     if "RAZA" in court_name:
         line = [lines[0].replace('|', '').strip() + lines[1].replace('|', '').strip()]
         court_name = get_court_name(line)
-
     return court_name.replace('  ', ' ')
