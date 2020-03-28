@@ -3,6 +3,8 @@ Functions for extracting data from the judge employment roll .doc files.
 """
 
 import re
+from generic_cleaners import multi_char_replacer
+from transdicts import court_names
 
 
 def update_judge_people_periods(people_periods, unit_lines, text, year, month):
@@ -33,7 +35,6 @@ def two_col_name_getter(list_of_lines, names):
         if bool(re.match('^(?=.*[a-zA-Z])', val)):
             name_line = val.split('|')
             name_line = [l for l in name_line if bool(re.match('^(?=.*[a-zA-Z])', l))]
-            name_line = [l.replace(' - ', ' ').replace(' -', ' ').replace('-', ' ').strip() for l in name_line]
             if len(name_line) < 2:  # name spilled over onto next line, put it to last name and skip
                 if name_line[0] == 'CRT':
                     continue
@@ -41,6 +42,7 @@ def two_col_name_getter(list_of_lines, names):
                     continue
                 names[idx - 1][1] = names[idx - 1][1] + ' ' + name_line[0]
                 continue
+            name_line = [' '.join(n.split()).strip() for n in name_line]
             names.append(name_line)
 
 
@@ -49,6 +51,7 @@ def three_col_name_getter(list_of_lines, names):
     for l in list_of_lines:
         name_line = list(filter(None, l.split('|')))
         name_line = list(filter(None, [n.strip() for n in name_line]))
+        name_line = [' '.join(n.split()).strip() for n in name_line]
         name_line = name_line[:2] if len(name_line) > 2 else name_line
         if len(name_line) > 1:
             names.append(name_line)
@@ -76,9 +79,11 @@ def get_court_name(lines):
         court_name = 'ÎNALTA CURTE DE CASAŢIE ŞI JUSTIŢIE'
     else:
         court_name = "CURTEA DE APEL " + lines[0].replace('|', '').strip()
-
     # catch multiline names
     if "RAZA" in court_name:
         line = [lines[0].replace('|', '').strip() + lines[1].replace('|', '').strip()]
         court_name = get_court_name(line)
-    return court_name.replace('  ', ' ')
+    if ("COMERCIAL M" in court_name) or ("SPECIALIZAT M" in court_name):
+        court_name = court_name.replace("JUDECĂTORIA", "TRIBUNALUL")
+    court_name = multi_char_replacer(court_name, court_names)
+    return ' '.join(court_name.split()).strip()

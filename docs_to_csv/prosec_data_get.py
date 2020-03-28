@@ -4,6 +4,8 @@ Functions for extracting data from the prosecutor employment roll .doc files.
 
 import re
 from string import punctuation
+from generic_cleaners import multi_char_replacer
+from transdicts import given_name_mistakes, given_name_diacritics, parquet_names
 
 
 def update_prosec_people_periods(people_periods, unit_lines, split_mark, year, month):
@@ -34,21 +36,24 @@ def get_parquet_name_lines(list_of_lines):
 def get_prosecutor_names(text):
     """return a tuple with surname and given names"""
     # names in brackets are maiden names, part of surnames
-    maiden_name = ''
-    if re.search(r'\((.*?)\)', text):
-        maiden_name = re.search(r'\((.*?)\)', text).group(0)
-        text = text.replace(maiden_name, '').strip()
-        maiden_name = ' ' + maiden_name.replace(' ', '')
-    surnames = text[:text.find(' ') + 1].strip() + maiden_name
-    given_names = text[text.find(' ') + 1:].replace('-', ' ')
-    # a one-off glitch in the base data files
-    if given_names == "FLORESCU":
-        given_names = surnames
-        surnames = "FLORESCU"
-    if ("CRIMINALITATE" not in surnames) and (surnames != "LA") \
-            and ('/' not in surnames) and ('/' not in given_names) \
-            and (len(surnames) > 1):
-        return surnames.strip(), given_names.strip().replace(' NR', '')
+    if normal_text(text):
+        maiden_name = ''
+        if re.search(r'\((.*?)\)', text):
+            maiden_name = re.search(r'\((.*?)\)', text).group(0)
+            text = text.replace(maiden_name, '').strip()
+            maiden_name = ' ' + maiden_name.replace(' ', '')
+        surnames = text[:text.find(' ') + 1].strip() + maiden_name
+        given_names = text[text.find(' ') + 1:].replace('-', ' ').replace('NR', '')
+        # a one-off glitch in the base data files
+        if given_names == "FLORESCU":
+            given_names = surnames
+            surnames = "FLORESCU"
+        given_names = multi_char_replacer(given_names, given_name_mistakes)
+        given_names = multi_char_replacer(given_names, given_name_diacritics)
+        if len(surnames) > 2:
+            surnames = ' '.join(surnames.split()).strip()
+            given_names = ' '.join(given_names.split()).strip()
+            return surnames, given_names
 
 
 def prosec_multiline_name_catcher(people_periods):
@@ -82,18 +87,42 @@ def get_parquet_name(lines, split_mark):
         lines = [l for l in lines if bool(re.match('^(?=.*[a-zA-Z])', l))]
     parquet_name = ''
     if lines:
-        if re.search(r'ANTICORUPTIE|ANTICORUPŢIE|Anticoruptie|Anticorupție|DNA', lines[0]) is not None:
-            parquet_name = "DIRECȚIA NAȚIONALĂ ANTICORUPȚIE"
-        elif re.search(r"INVESTIGARE|Inverstigare|DIICOT", lines[0]) is not None:
-            parquet_name = "DIRECȚIA DE INVESTIGARE A INFRACȚIUNILOR DE CRIMINALITATE ORGANIZATĂ ȘI TERORISM"
-        elif re.search(r"ÎNALTA|ICCJ", lines[0]) is not None:
-            parquet_name = "PARCHETUL DE PE LÂNGĂ ÎNALTA CURTE DE CASAȚIE ȘI JUSTIȚIE"
+        if re.search(r'ANTICORUPTIE|ANTICORUPŢIE', lines[0]) is not None:
+            parquet_name = "DIRECŢIA NAŢIONALĂ ANTICORUPŢIE"
+        elif re.search(r"INVESTIGARE", lines[0]) is not None:
+            parquet_name = "DIRECŢIA DE INVESTIGARE A INFRACŢIUNILOR DE CRIMINALITATE ORGANIZATĂ ŞI TERORISM"
+        elif re.search(r"ÎNALTA", lines[0]) is not None:
+            parquet_name = "PARCHETUL DE PE LÂNGĂ ÎNALTA CURTE DE CASAŢIE ŞI JUSTIŢIE"
         elif "TRIBUNALUL PENTRU MINORI" in lines[0]:
             parquet_name = "PARCHETUL DE PE LÂNGĂ TRIBUNALUL PENTRU MINORI ŞI FAMILIE BRAŞOV"
         else:
             parquet_name = (split_mark + lines[0]).replace('|', '').strip()
             parquet_name = parquet_name.replace('-', ' ').translate(str.maketrans('', '', punctuation))
+    parquet_name = parquet_name.replace('  ', ' ')
+    if multiline_parquet_name(parquet_name):
+        parquet_name = parquet_name + ' ' + lines[1].replace('|', '').strip()
+    parquet_name = multi_char_replacer(parquet_name, parquet_names)
+    parquet_name = ' '.join(parquet_name.split()).strip()
+    if parquet_name == "PARCHETUL DE PE LÂNGĂ JUDECĂTORIA ALBA":
+        parquet_name = "PARCHETUL DE PE LÂNGĂ JUDECĂTORIA ALBA IULIA"
+    return parquet_name
 
+
+def normal_text(text):
+    """returns True if common red flags are absent"""
+    if (len(text) > 3) and ("LA DATA DE" not in text) and ("ÎNCEPÂND CU" not in text) \
+            and ("CRIMINALITATE" not in text) and ("TÂRGU" not in text) and ("NUME" not in text) \
+            and ("ORGANIZATĂ" not in text) and ("STABILITATE" not in text) and ("EXTERNE" not in text) \
+            and ("CURTEA" not in text) and ("INFRACŢIUNILOR" not in text) and ("EUROPA" not in text) \
+            and ("LÂNGĂ" not in text) and ("DIICOT" not in text) and ("DNA" not in text) \
+            and ("PROCUROR" not in text) and ("JUDECĂTORIA" not in text):
+        return True
+    else:
+        return False
+
+
+def multiline_parquet_name(parquet_name):
+    """return True for common red flags that a parquet name goes across two lines"""
     if (parquet_name == "PARCHETUL DE") or \
             (parquet_name == "PARCHETUL DE PE") \
             or (parquet_name == "PARCHETUL DE PE LÂNGĂ") \
@@ -102,6 +131,6 @@ def get_parquet_name(lines, split_mark):
             or (parquet_name == "PARCHETUL DE PE LÂNGĂ CURTEA") \
             or (parquet_name == "PARCHETUL DE PE LÂNGĂ CURTEA DE") \
             or (parquet_name == "PARCHETUL DE PE LÂNGĂ CURTEA DE APEL"):
-        parquet_name = parquet_name + ' ' + lines[1].replace('|', '').strip()
-        parquet_name = ' '.join(parquet_name.split())
-    return parquet_name
+        return True
+    else:
+        return False
