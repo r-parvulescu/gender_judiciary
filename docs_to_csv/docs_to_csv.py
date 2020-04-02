@@ -36,7 +36,7 @@ def docs_to_csv(rootdir, outfile_name, split_mark, parquet=False):
         for subdir, dirs, files in os.walk(rootdir):
             for file in files:
                 counter += 1
-                if counter < 30000:
+                if counter < 50000:
                     filepath = subdir + os.sep + file
                     print(filepath)
                     if parquet:

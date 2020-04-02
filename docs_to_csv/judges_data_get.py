@@ -3,8 +3,8 @@ Functions for extracting data from the judge employment roll .doc files.
 """
 
 import re
-from generic_cleaners import multi_char_replacer
-from transdicts import court_names
+from generic_cleaners import no_space_name_replacer, space_name_replacer
+from transdicts import court_names, given_name_mistakes, given_name_diacritics, judges_surname_replacers
 
 
 def update_judge_people_periods(people_periods, unit_lines, text, year, month):
@@ -26,6 +26,11 @@ def get_judges_names(list_of_lines, text):
             three_col_name_getter(list_of_lines, names)
         else:  # two-column file
             two_col_name_getter(list_of_lines, names)
+        for name in names:
+            name[0] = no_space_name_replacer(name[0], judges_surname_replacers)
+            name[1] = space_name_replacer(name[1], given_name_mistakes)
+            name[1] = no_space_name_replacer(name[1], given_name_diacritics)
+            name[0], name[1] = problem_name_handler(name[0], name[1])
         return names
 
 
@@ -85,5 +90,15 @@ def get_court_name(lines):
         court_name = get_court_name(line)
     if ("COMERCIAL M" in court_name) or ("SPECIALIZAT M" in court_name):
         court_name = court_name.replace("JUDECĂTORIA", "TRIBUNALUL")
-    court_name = multi_char_replacer(court_name, court_names)
-    return ' '.join(court_name.split()).strip()
+    court_name = ' '.join(court_name.split()).strip()
+    court_name = space_name_replacer(court_name, court_names)
+    return court_name
+
+
+def problem_name_handler(surnames, given_names):
+    """there are some given names / surnames that mess things up; this returns usable names"""
+    if "AND ONE" in surnames:
+        surnames = "ANDONE"
+    if "FOSTĂ" in surnames:
+        surnames = surnames.replace("( FOSTĂ ", '(')
+    return surnames, given_names

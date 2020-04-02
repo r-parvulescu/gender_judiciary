@@ -4,8 +4,8 @@ Functions for extracting data from the prosecutor employment roll .doc files.
 
 import re
 from string import punctuation
-from generic_cleaners import multi_char_replacer
-from transdicts import given_name_mistakes, given_name_diacritics, parquet_names
+from generic_cleaners import no_space_name_replacer, space_name_replacer
+from transdicts import given_name_mistakes, given_name_diacritics, parquet_names, prosec_surname_replacers
 
 
 def update_prosec_people_periods(people_periods, unit_lines, split_mark, year, month):
@@ -35,22 +35,23 @@ def get_parquet_name_lines(list_of_lines):
 
 def get_prosecutor_names(text):
     """return a tuple with surname and given names"""
-    # names in brackets are maiden names, part of surnames
     if normal_text(text):
+        # names in brackets are maiden names, part of surnames
         maiden_name = ''
         if re.search(r'\((.*?)\)', text):
             maiden_name = re.search(r'\((.*?)\)', text).group(0)
             text = text.replace(maiden_name, '').strip()
             maiden_name = ' ' + maiden_name.replace(' ', '')
         surnames = text[:text.find(' ') + 1].strip() + maiden_name
+        # general clean-up
         given_names = text[text.find(' ') + 1:].replace('-', ' ').replace('NR', '')
-        # a one-off glitch in the base data files
-        if given_names == "FLORESCU":
-            given_names = surnames
-            surnames = "FLORESCU"
-        given_names = multi_char_replacer(given_names, given_name_mistakes)
-        given_names = multi_char_replacer(given_names, given_name_diacritics)
+
+        given_names = space_name_replacer(given_names, given_name_mistakes)
+        given_names = no_space_name_replacer(given_names, given_name_diacritics)
+        surnames = no_space_name_replacer(surnames, prosec_surname_replacers)
+        surnames, given_names = problem_name_handler(surnames, given_names)
         if len(surnames) > 2:
+            # get rid of multiple spaces
             surnames = ' '.join(surnames.split()).strip()
             given_names = ' '.join(given_names.split()).strip()
             return surnames, given_names
@@ -101,7 +102,7 @@ def get_parquet_name(lines, split_mark):
     parquet_name = parquet_name.replace('  ', ' ')
     if multiline_parquet_name(parquet_name):
         parquet_name = parquet_name + ' ' + lines[1].replace('|', '').strip()
-    parquet_name = multi_char_replacer(parquet_name, parquet_names)
+    parquet_name = space_name_replacer(parquet_name, parquet_names)
     parquet_name = ' '.join(parquet_name.split()).strip()
     if parquet_name == "PARCHETUL DE PE LÂNGĂ JUDECĂTORIA ALBA":
         parquet_name = "PARCHETUL DE PE LÂNGĂ JUDECĂTORIA ALBA IULIA"
@@ -115,7 +116,7 @@ def normal_text(text):
             and ("ORGANIZATĂ" not in text) and ("STABILITATE" not in text) and ("EXTERNE" not in text) \
             and ("CURTEA" not in text) and ("INFRACŢIUNILOR" not in text) and ("EUROPA" not in text) \
             and ("LÂNGĂ" not in text) and ("DIICOT" not in text) and ("DNA" not in text) \
-            and ("PROCUROR" not in text) and ("JUDECĂTORIA" not in text):
+            and ("PROCUROR" not in text) and ("JUDECĂTORIA" not in text) and ("CSM" not in text):
         return True
     else:
         return False
@@ -134,3 +135,37 @@ def multiline_parquet_name(parquet_name):
         return True
     else:
         return False
+
+
+def problem_name_handler(surnames, given_names):
+    """there are some given names that mess things up; this returns usable names"""
+    if given_names == "FLORESCU":
+        given_names = surnames
+        surnames = "FLORESCU"
+    if ("HĂINEALĂ" in given_names) or ("SCHMIDT" in given_names):
+        given_names = "OANA"
+        surnames = "SCHMIDT HĂINEALĂ"
+    if "RODRIGUES" in given_names:
+        given_names = "CRISTINA"
+        surnames = "MĂRINCEAN"
+    if "ECEDI" in surnames:
+        given_names = "STOISAVLEVICI LAURA"
+    if "CANTEMIR" in given_names:
+        surnames = "OPREA CANTEMIR"
+        given_names = "ŞTEFĂNEL"
+    if "MASSIMO" in given_names:
+        given_names = "MARIO MASSIMO"
+        surnames = "DEL CET"
+    if "MELANOVSCHI" in given_names:
+        surnames = "VARTOLOMEI MELANOVSCHI"
+        given_names = "LIUDMILA"
+    if "PĂCUREŢU" in given_names:
+        surnames = "CANACHE PĂCUREŢU"
+        given_names = "ION"
+    if "ŞESTACHOVSCHI" in given_names:
+        surnames = "ŞESTACHOVSCHI MOANGĂ"
+        given_names = "SIMONA"
+    if "EZRA" in given_names:
+        surnames = "BEN EZRA"
+        given_names = "CRISTINA DIANA"
+    return surnames, given_names

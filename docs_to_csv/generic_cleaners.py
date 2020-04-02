@@ -2,19 +2,22 @@
 Functions that help clean data, for both prosecutor and judge .doc files.
 """
 
+import re
 from string import digits
 from transdicts import court_sectors_buc, parquet_sectors_buc
 
 
 def pre_clean(text, parquet):
     """remove some ad hoc strings causing known issues"""
-    text = multi_char_replacer(text, court_sectors_buc)  # Bucharest sectors, courts
+    text = space_name_replacer(text, court_sectors_buc)  # Bucharest sectors, courts
     if parquet:
-        text = multi_char_replacer(text, parquet_sectors_buc)  # Bucharest sectors, parquets
-    # remove digits, and some characters
+        text = space_name_replacer(text, parquet_sectors_buc)  # Bucharest sectors, parquets
+    # # replace all "Î" in middle of word with "Â", remove digits, and problem characters
+    text = re.sub(r'\BÎ+\B', r'Â', text)  # replace all "Î" in middle of word with "Â"
     text = text.translate(str.maketrans('', '', digits))
     text = text.translate(str.maketrans({'.': ' ', '–': ' ', '-': ' ', '/': ' ', "'": '', "Ț": "Ţ", "Ș": "Ş",
-                                         "Ů": "Ţ", "ﾞ": "Ţ", "’": "Ţ", ";": "Ş", "Ř": "Ţ"}))
+                                         "Ů": "Ţ", "ﾞ": "Ţ", "’": "Ţ", ";": "Ş", "Ř": "Ţ", "]": ' ', '[': ' ',
+                                         '_': ' '}))
     return text
 
 
@@ -27,9 +30,18 @@ def multiline_name_contractor(people_periods):
     return [i for i in people_periods if i[0] != '']
 
 
-def multi_char_replacer(text, dictio):
+def space_name_replacer(text, dictio):
     """replaces all instances of dict key in text with corresponding dict value"""
     for key, value in dictio.items():
         if key in text:
             text = text.replace(key, value)
+    return text
+
+
+def no_space_name_replacer(text, dictio):
+    """replaces all instances of dict key in text with corresponding dict value"""
+    text_list = text.split()
+    for t in text_list:
+        if t in dictio:
+            text = text.replace(t, dictio[t])
     return text
