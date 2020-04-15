@@ -3,7 +3,7 @@ Functions for extracting data from the judge employment roll .doc files.
 """
 
 import re
-from generic_cleaners import no_space_name_replacer, space_name_replacer
+from cleaning_tools import no_space_name_replacer, space_name_replacer
 from transdicts import court_names, given_name_mistakes, given_name_diacritics, judges_surname_replacers
 
 
@@ -92,6 +92,8 @@ def get_court_name(lines):
         court_name = court_name.replace("JUDECĂTORIA", "TRIBUNALUL")
     court_name = ' '.join(court_name.split()).strip()
     court_name = space_name_replacer(court_name, court_names)
+    if court_name == 'JUDECĂTORIA RM VÂLCEA':
+        court_name = "JUDECĂTORIA RÂMNICU VÂLCEA"
     return court_name
 
 

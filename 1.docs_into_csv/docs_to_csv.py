@@ -17,7 +17,7 @@ import csv
 import re
 from judges_data_get import update_judge_people_periods
 from prosec_data_get import update_prosec_people_periods, prosec_multiline_name_catcher
-from generic_cleaners import pre_clean, multiline_name_contractor
+from cleaning_tools import pre_clean, multiline_name_contractor
 
 # TODO make it work from just memory so you don't have to unzip anything
 
@@ -36,7 +36,7 @@ def docs_to_csv(rootdir, outfile_name, split_mark, parquet=False):
         for subdir, dirs, files in os.walk(rootdir):
             for file in files:
                 counter += 1
-                if counter < 50000:
+                if counter < 10000:
                     filepath = subdir + os.sep + file
                     print(filepath)
                     if parquet:
@@ -76,14 +76,3 @@ def get_military_data(text):
     military = (re.search(r'PARCHETELOR MILITARE|PARCHETELE MILITARE|PARCHETUL MILITAR', text)
                 is not None) or (re.search(r'CURTEA MILITAR|TRIBUNALUL MILITAR', text) is not None)
     return military
-
-
-if __name__ == '__main__':
-    j_archive = 'judges_12.2005_04.2017.zip'
-    p_archive = 'prosecutors_12.2005_04.2017.zip'
-    j_directory = 'judges_12.2005_04.2017'
-    p_directory = 'prosecutors_12.2005_04.2017'
-    prosecutors_split_mark = 'PARCHETUL '
-    judges_split_mark = 'JUDECĂTORIA |JUDECATORIA |TRIBUNALUL |CURTEA DE APEL'
-    # docs_to_csv(p_directory, "prosecutors.csv", prosecutors_split_mark, parquet=True)
-    docs_to_csv(j_directory, "judges.csv", judges_split_mark)

@@ -4,7 +4,8 @@ Translation dictionaries for various spelling/diacritic issues.
 
 court_names = {"ALSED": "ALEŞD", "TÎRGU": "TÂRGU", "TĂRGU": "TÂRGU", "STEHAIA": "STREHAIA", "PITESTI": "PITEŞTI",
                "HÎRLĂU": "HÂRLĂU", "CAMPULUNG": "CÂMPULUNG", "VÎNJU": "VÂNJU", "RM  VÂLCEA": "RÂMNICU VÂLCEA",
-               "RM VALCEA": "RÂMNICU VÂLCEA", "COMERCIAL": "COMERC./SPECIAL.", "SPECIALIZAT": "COMERC./SPECIAL.",
+               "RM VÂLCEA": "RÂMNICU VÂLCEA", "RM VALCEA": "RÂMNICU VÂLCEA", "COMERCIAL": "COMERC./SPECIAL.",
+               "SPECIALIZAT": "COMERC./SPECIAL.",
                "BALCESTI": "BĂLCEŞTI", "BÎRLAD": "BÂRLAD", "COSTESTI": "COSTEŞTI", "ARGES": "ARGEŞ",
                "DRAGASANI": "DRĂGĂŞANI", "SÎNNICOLAU": "SÂNNICOLAU", "ŞOMCUTA": "ŞOMCUŢA", "VALCEA": "VÂLCEA"}
 

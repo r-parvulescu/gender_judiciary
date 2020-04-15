@@ -4,7 +4,7 @@ Functions for extracting data from the prosecutor employment roll .doc files.
 
 import re
 from string import punctuation
-from generic_cleaners import no_space_name_replacer, space_name_replacer
+from cleaning_tools import no_space_name_replacer, space_name_replacer
 from transdicts import given_name_mistakes, given_name_diacritics, parquet_names, prosec_surname_replacers
 
 
