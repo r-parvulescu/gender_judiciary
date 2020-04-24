@@ -1,0 +1,6 @@
+###### Requirements with Version Specifiers ######`
+
+textract == 1.6.3
+bs4 == 0.0.1
+pythonLevenshtein == 0.12.0
+requests == 2.23.0
