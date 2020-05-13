@@ -1,6 +1,29 @@
 ###### Requirements with Version Specifiers ######`
 
-textract == 1.6.3
+# code developed on python 3.8
+
+# core utilities
+numpy == 1.18.3
+scipy == 1.4.1
+pandas == 1.0.3
+matplotlib == 3.2.1
+
+# for scraping
 bs4 == 0.0.1
-pythonLevenshtein == 0.12.0
 requests == 2.23.0
+
+# for handling unicode
+unidecode == 1.1.1
+PyICU == 2.4.3
+
+# for deduplication
+python-Levenshtein == 0.12.0
+dedupe == 2.0.2
+
+# for extracting data from different file types (.doc, .pdf, .xlsx)
+textract == 1.6.3
+camelot-py == 0.7.3
+xlrd == 1.2.0
+
+# misc
+natsort == 7.0.1

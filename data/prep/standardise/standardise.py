@@ -4,15 +4,13 @@ Functions for cleaning up irregularities in the data.
 
 import csv
 import json
-import pandas as pd
 import itertools
 from operator import itemgetter
-import re
 import Levenshtein
 from datetime import datetime
 
 
-def clean(ppt, change_file, range_years, year):
+def clean(ppt, change_dict, range_years, year):
     """
     Applies cleaners to a person-period table it until there's nothing left to clean
 
@@ -21,72 +19,64 @@ def clean(ppt, change_file, range_years, year):
     on some maximal name cleanliness.
 
     :param ppt: a person-period table (e.g. person-years) as a list of lists
-    :param change_file: path to .txt dict where we record before (key) and after (value) state changes
+    :param change_dict: a dict where we record before (key) and after (value) state changes
     :param range_years: int, how many years our data covers
     :param year: bool, True if it's a person-year table, False if it's a person-month table
     :return cleaned person-period table
     """
 
-    # sort table by surname (row[0]), year (row[3]) and, if month-level table, month (row[4])
-    ppt.sort(key=itemgetter(0, 3)) if year \
-        else ppt.sort(key=itemgetter(0, 3, 4))
+    # let us know if we're working on a year or month table
+    print('  CLEANING YEAR TABLE') if year else print('CLEANING MONTH TABLE')
+    print('    TABLE LENGTH AT BEGINNING: ', len(ppt))
 
     # indicate each function run by the time it begins
-    time = datetime.now().time().strftime('%P-%I-%M-%S-%f')
+    time = datetime.now().time().strftime('%P-%I-%M-%S')
 
-    # load the dict where we record before (key) and after (value) states, for visual inspection later
-    with open(change_file, 'r') as cf:
-        change_dict = json.load(cf)
+    # add new value for the time of the run
     change_dict[time] = {}
 
-    # start state of the columns we want to deduplicate/standardise
+    # start state, unique number of full names
     preclean_num_fullnames = len({row[0] + ' ' + row[1] for row in ppt})
-    preclean_num_rows = len(ppt)
 
     # run cleaners
 
     # "move_surname" assumes we have original name order from the data collector, which the next function
     # ("name_order") explicitly undoes. So, "move_surname" must always go first.
-    ppt, change_dict = move_surname(ppt, change_dict, time)
+    print('      RUNNING: MOVE SURNAME')
+    ppt = move_surname(ppt, change_dict, time)
 
     # It's probably more efficient for 'name_order' to run immediately after "move_surname", so that all
     # subsequent cleaners work with order-standardised names.
+    print('      RUNNING: NAME ORDER')
     ppt = name_order(ppt)
 
-    ppt, change_dict = lengthen_name(ppt, change_dict, time, range_years, surname=True, year=year)
-    ppt, change_dict = lengthen_name(ppt, change_dict, time, range_years, surname=False, year=year)
+    print('      RUNNING: LENGTHEN SURNAME')
+    ppt = lengthen_name(ppt, change_dict, time, range_years, surname=True, year=year)
 
-    # Different application orders for name standardisation criteria give different results, but all orderings
-    # reduce approximately the same number of name variants to one standard, which is ultimately the point
-    # The criterion order below is, therefore, arbitrary.
-    ppt, change_dict = standardise_full_names(ppt, change_dict, time, 'two_char')
-    ppt, change_dict = standardise_full_names(ppt, change_dict, time, 'diacritics')
+    print('      RUNNING: LENGTHEN GIVEN NAME')
+    ppt = lengthen_name(ppt, change_dict, time, range_years, surname=False, year=year)
 
-    ppt, change_dict = many_name_share(ppt, change_dict, time)
+    # cleans up 1-character differences in long names
+    print('      RUNNING: STANDARDISE LONG FULL NAMES')
+    ppt = standardise_long_full_names(ppt, change_dict, time)
 
-    # person_period_table = remove_overlaps(person_period_table)
+    # this thrives on long names, best put after name lengtheners and long name standardiser
+    print('      RUNNING: MANY NAME SHARE')
+    ppt = many_name_share(ppt, change_dict, time)
 
-    # end state of the columns we want to deduplicate/standardise
+    # end state, unique number of full names
     postclean_num_fullnames = len({row[0] + ' ' + row[1] for row in ppt})
-    postclean_num_rows = len(ppt)
-
-    # update log of changes
-    with open(change_file, 'w') as cf:
-        json.dump(change_dict, cf)
 
     # show what this run has accomplished
-    print("NUMBER OF FULLNAMES REDUCED: ", (preclean_num_fullnames - postclean_num_fullnames))
-    print("NUMBER OF ROWS REDUCED: ", (preclean_num_rows - postclean_num_rows))
+    print("    NUMBER OF FULL NAMES STANDARDISED: ", (preclean_num_fullnames - postclean_num_fullnames))
+    print("    TABLE LENGTH AT END: ", len(ppt))
 
-    # keep running the cleaners until each additional run is not adding anything
-    # if nothing is being added, return the cleaned table
-
+    # keep running the cleaners until we are no longer standardising names
     if postclean_num_fullnames == preclean_num_fullnames:
-        make_log_file(change_dict, change_file.replace('.txt', '.csv'))
-        return ppt
+        return sorted(ppt, key=itemgetter(0, 1, 3)) if year else sorted(ppt, key=itemgetter(0, 1, 3, 4))
     else:
-        print('---------RECURSED---------')
-        return clean(ppt, change_file, range_years, year=year)  # recurse
+        print('-------------NAME CLEANER RECURSED-------------')
+        return clean(ppt, change_dict, range_years, year=year)  # recurse
 
 
 def make_log_file(change_dict, out_path):
@@ -136,17 +126,22 @@ def move_surname(person_period_table, change_dict, time):
     :return a person-period table with surnames/fullnames in the appropriate places
     """
 
-    change_dict[time]['move_surname'] = {}
+    func = 'move_surname'
+    change_dict[time][func] = {}
     corrected_data_table = []
 
-    with open('gender/ro_gender_dict.txt') as gd:
+    with open('prep/gender/ro_gender_dict.txt') as gd:
         gender_dict = json.load(gd)
         for row in person_period_table:
             names = list(filter(None, row[1].split(' ')))
             misplaced_surname = ''
             for name in names:
-                if gender_dict[name] == 'surname':
-                    misplaced_surname = misplaced_surname + name
+                try:
+                    if gender_dict[name] == 'surname':
+                        misplaced_surname = misplaced_surname + name
+                except KeyError:
+                    print('        THIS NAME NOT IN GENDER DICTIONARY: ', name)
+
             if misplaced_surname:
 
                 # (A) surname at beginning of given names, e.g. ŞESTACOVSCHI | MOANGĂ SIMONA
@@ -157,7 +152,7 @@ def move_surname(person_period_table, change_dict, time):
                     new_row = [surname, given_name] + row[2:]
                     corrected_data_table.append(new_row)
                     # log fullname change
-                    change_dict[time]['move_surname'][row[0] + '|' + row[1]] = surname + '|' + given_name
+                    change_dict[time][func][row[0] + ' | ' + row[1]] = surname + ' | ' + given_name
 
                 # (B) surname at end of given names, e.g. CORNOIU | VICTOR JITĂRAŞU
                 # solution: correct original row
@@ -167,9 +162,10 @@ def move_surname(person_period_table, change_dict, time):
                     new_row = [surname, given_name] + row[2:]
                     corrected_data_table.append(new_row)
                     # log fullname change
-                    change_dict[time]['move_surname'][row[0] + '|' + row[1]] = surname + '|' + given_name
+                    change_dict[time][func][row[0] + ' | ' + row[1]] = surname + ' | ' + given_name
 
-                # (C) maiden name tacked after given names, e.g. MUNTEANU RETEVOESCU | ANA MARIA (DUMBRAVĂ)
+                # (C) maiden name (in parentheses) tacked after given names,
+                # e.g. MUNTEANU RETEVOESCU | ANA MARIA (DUMBRAVĂ)
                 # solution: correct original row
                 elif misplaced_surname[0] == '(':
                     surname = str(row[0] + misplaced_surname).replace('(', '').replace(')', '')
@@ -177,16 +173,16 @@ def move_surname(person_period_table, change_dict, time):
                     new_row = [surname, given_name] + row[2:]
                     corrected_data_table.append(new_row)
                     # log fullname change
-                    change_dict[time]['move_surname'][row[0] + '|' + row[1]] = surname + '|' + given_name
+                    change_dict[time][func][row[0] + ' | ' + row[1]] = surname + ' | ' + given_name
 
                 # (D) fullname (of other person) at end of given names
+                # e.g. VĂCARU | CLAUDIA IULIANA VÂJLOI ANDREEA ILEANA
                 # solution: correct original row, make new row for extra fullname
                 else:
-                    # TODO get an example of this so I can put it in the test file
                     start_other_fullname = row[1].find(misplaced_surname)
                     other_fullname = row[1][start_other_fullname:].strip().split(' ')
                     other_surname = other_fullname[0].replace('(', '').replace(')', '')
-                    other_given_name = other_fullname[1]
+                    other_given_name = ' '.join(other_fullname[1:])
 
                     own_surname = row[0].replace('(', '').replace(')', '')
                     own_given_name = row[1].replace(row[1][start_other_fullname:], '').strip()
@@ -198,11 +194,44 @@ def move_surname(person_period_table, change_dict, time):
                     corrected_data_table.append(new_row)
 
                     # log fullname changes
-                    change_dict[time]['move_surname'][row[0] + '|' + row[1]] = (own_surname + '|' + own_given_name,
-                                                                                other_surname + '|' + other_given_name)
+                    change_dict[time][func][row[0] + ' | ' + row[1]] = (own_surname + ' | ' + own_given_name,
+                                                                        other_surname + ' | ' + other_given_name)
             else:
-                corrected_data_table.append(row)
-    return corrected_data_table, change_dict
+                # eliminate parentheses in all other surnames too
+                surname = row[0].replace('(', '').replace(')', '')
+                corrected_data_table.append([surname] + row[1:])
+    return deduplicate_list_of_lists(corrected_data_table)
+
+
+def name_order(person_period_table):
+    """
+    ignore name order within surnames and given names and sort each alphabetically.  For example, all of:
+
+    SURNAME    GIVEN NAME    MONTH/YEAR
+
+    DERP HERP  BOB JOE       03/2012
+    DERP HERP  JOE BOB       04/2012
+    HERP DERP  BOB JOE       05/2012
+    HERP DERP  JOE BOB       06/2012
+
+    Would become "DERP HERP BOB JOE". The assumption here is that names are sufficient identifiers on
+    their own and that name order adds more noise than signal. So we standardise name order to make the
+    signal from the name itself come out better.
+
+    NB: this sorting is a bit unnatural since it puts all diacritic letters after Z, (e;g; the order is
+    [SARDU, ZUH, ŞERBAN], not [SARDU, ŞERBAN ZUH] but this doesn't matter so long as it's consistent.
+
+    :param person_period_table: a table of person-periods (e.g. person-years) as a list of lists
+    :return a person period-table with one standardised name that ignores within-surname and
+            within-given name order
+    """
+
+    name_sorted_table = []
+    for row in person_period_table:
+        sorted_surnames = ' '.join(sorted(row[0].split()))
+        sorted_given_names = ' '.join(sorted(row[1].split()))
+        name_sorted_table.append([sorted_surnames, sorted_given_names] + row[2:])
+    return deduplicate_list_of_lists(name_sorted_table)
 
 
 def lengthen_name(person_period_table, change_dict, time, range_years, surname=True, year=False):
@@ -221,7 +250,7 @@ def lengthen_name(person_period_table, change_dict, time, range_years, surname=T
     DERP       BOB JOE       04/2012            DERP       BOB           04/2012
     DERP HERP  BOB JOE       05/2012            DERP       BOB JOE       05/2012
     DERP HERP  BOB JOE       06/2012            DERP       BOB JOE       06/2012
-    HERP       BOB JOE       07/2012
+    HERP       BOB J         07/2012
     HERP       BOB JOE       08/2012
 
 
@@ -243,10 +272,20 @@ def lengthen_name(person_period_table, change_dict, time, range_years, surname=T
     Doing this throws out information on name transition, but makes it easier to identify unique persons,
     which is the purpose of this module.
 
-    NOTE: this function will NOT find name changes from single-name surnames to other
+    NB: this function assumes that rows are unique, grouped by person-year, and consecutive in time
+
+    NB: this function will NOT find name changes from single-name surnames to other
     single-name versions. So it WON'T catch DERP BOB JOE --> HERP BOB JOE; it likewise won't catch
     "DERP BOB" to "DERP JOE". This is intentional: those shorter names are common enough that you risk
     false positives, i.e. actually different people.
+
+    NB: ensure the names have different numbers of components, so you don't end up with DERP BOB JOE --> DERP BOB MOE
+
+    KNOWN BUG: when run on the post-2005 month data this function increases the number of rows by ~300 BEFORE
+    deduplication. After deduplication we have less rows than we came in, again on the order of several hundred.
+    Whatever duplication this function mightt therefore do in the step, the second seems to undo. Even if this is
+    pure error, the degree of change in table size (several hundred out of ~700,000 rows) is on the order of
+    0.05 of a percent.
 
     :param person_period_table: a table of person-periods (e.g. person-years) as a list of lists
     :param range_years: int, how many years our data covers
@@ -257,7 +296,13 @@ def lengthen_name(person_period_table, change_dict, time, range_years, surname=T
     :return a person-period table with maximal surnames
     """
 
-    change_dict[time]['lengthen_name'] = {}
+    # if year-data, sort by surname (row[0]), year (row[3])
+    # if month-data, sort also by given name (row[1]) and month (row[4])
+    person_period_table.sort(key=itemgetter(0, 1, 3)) if year \
+        else person_period_table.sort(key=itemgetter(0, 1, 3, 4))
+
+    func = 'lengthen_name-surname' if surname else 'lengthen_name-given_name'
+    change_dict[time][func] = {}
     long_name_table = []
 
     # switch for whether we're lengthening surnames or given names
@@ -266,18 +311,21 @@ def lengthen_name(person_period_table, change_dict, time, range_years, surname=T
     # search person-period table for too-short names and where possible lengthen them
     start_search = 0
     while start_search < len(person_period_table) - 1:
+
         # get index of first row with multiple names
         # if you hit end of table before finding, default to last entry
-        first_ns_row = next((row for row in person_period_table[start_search:]
-                             if len(row[name_idx].split()) > 1),
-                            person_period_table[len(person_period_table) - 1])
+        first_multi_name_row = next((row for row in person_period_table[start_search:]
+                                     if len(row[name_idx].split()) > 1),
+                                    person_period_table[len(person_period_table) - 1])
 
         # get bounds of person-level sequence (viz. which looks like that in the docstring example)
-        # that is centered on first_ns_row
-        low_bound, high_bound = get_sequence_bounds(person_period_table, first_ns_row,
+        # that is centered on first_multi_name_row
+        low_bound, high_bound = get_sequence_bounds(person_period_table, first_multi_name_row,
                                                     range_years, surname=surname, year=year)
 
         # find longest name in the sequence
+        # NB: if several names are equally long, this code always uses the first name we hit -- this decision is
+        # arbitrary, and inconsequential so long as it is consistently applied
         longest_n = ''
         for row in person_period_table[low_bound: high_bound]:
             if len(row[name_idx]) > len(longest_n):
@@ -285,32 +333,41 @@ def lengthen_name(person_period_table, change_dict, time, range_years, surname=T
 
         # reintroduce skipped rows
         long_name_table.extend(person_period_table[start_search: low_bound])
-        # reintroduce sequence rows, updated with maximised surname
-        if surname:
-            long_name_table.extend([[longest_n] + row[1:]
-                                    for row in person_period_table[low_bound: high_bound]])
-        else:
-            long_name_table.extend([[row[0]] + [longest_n] + row[2:]
-                                    for row in person_period_table[low_bound: high_bound]])
 
-        # mark changes in change log
-        changed_names = {row[name_idx] for row in person_period_table[low_bound: high_bound]}
-        changed_names.remove(longest_n)
+        # keep track of the names we're changing
+        changed_names = set()
+
+        # reintroduce sequence rows, updated with maximised surname
+        for row in person_period_table[low_bound: high_bound]:
+            # avoid mistakes like
+            # ANDREI | LAURA VALI --> ANDREI | LAURA MARINA
+            # yes the second name is longer, but these are actually different people
+            # the trick is to avoid changing names which have the same number of components: in the example above,
+            # both names have three components, so we don't change -- recall, we want to lengthen, not swap
+            if len(longest_n.split()) != len(row[name_idx].split()):
+                long_name_table.append([longest_n] + row[1:]) if surname \
+                    else long_name_table.append([row[0]] + [longest_n] + row[2:])
+                changed_names.add(row[0] + ' | ' + row[1])
+
+            else:
+                long_name_table.append(row)
+
+        # update the change log
         for cn in changed_names:
-            change_dict[time]['lengthen_name'][cn] = longest_n
+            if surname:
+                change_dict[time][func][cn] = longest_n + ' | ' + cn.split(' | ')[1]
+            else:
+                change_dict[time][func][cn] = cn.split(' | ')[0] + ' | ' + longest_n
 
         # move up the index from whence we'll start the next search
         start_search = high_bound
 
-    if len(long_name_table) != len(person_period_table):
-        raise ValueError("RETURN LIST TABLE DIFFERENT LENGHT THAN INPUT TABLE")
-    else:
-        return long_name_table, change_dict
+    return deduplicate_list_of_lists(long_name_table)
 
 
 def get_sequence_bounds(pers_per_tab, ref_row, range_years, surname=False, year=False):
     """
-    find the first and last index of a (sub)list of time-consecutive person-period rows,
+    Find the first and last index of a (sub)list of time-consecutive person-period rows,
     where each row shares a) at least one surname, b) identical given names
 
     :param pers_per_tab: a person-period table (as a list of lists) sorted by last name and time-unit
@@ -355,74 +412,41 @@ def get_sequence_bounds(pers_per_tab, ref_row, range_years, surname=False, year=
     if bfd_idx != 0:
         bfd_idx += 1
     if ffd_idx == len(pers_per_tab) - 1:
-        ffd_idx = ffd_idx + 1
+        ffd_idx += 1
 
     return bfd_idx, ffd_idx
 
 
-def name_order(person_period_table):
+def standardise_long_full_names(person_period_table, change_dict, time):
     """
-    ignore name order within surnames and given names and sort each alphabetically.  For example, all of:
+    some names are off by one character, due to inconsistent diacritic use for faulty input. For instance,
 
     SURNAME    GIVEN NAME    MONTH/YEAR
 
-    DERP HERP  BOB JOE       03/2012
-    DERP HERP  JOE BOB       04/2012
-    HERP DERP  BOB JOE       05/2012
-    HERP DERP  JOE BOB       06/2012
-
-    Would become "DERP HERP BOB JOE". The assumption here is that names are sufficient identifiers on
-    their own and that name order adds more noise than signal. So we standardise name order to make the
-    signal from the name itself come out better.
-
-    NB: this sorting is a bit unnatural since it puts all diacritic letters after Z, but this doesn't
-    matter so long as it's consistent.
-
-    :param person_period_table: a table of person-periods (e.g. person-years) as a list of lists
-    :return a person period-table with one standardised name that ignores within-surname and
-            within-given name order
-    """
-
-    sorted_table = []
-    for row in person_period_table:
-        sorted_surnames = ' '.join(sorted(row[0].split()))
-        sorted_given_names = ' '.join(sorted(row[1].split()))
-        sorted_table.append([sorted_surnames, sorted_given_names] + row[2:])
-    return sorted_table
-
-
-def standardise_full_names(person_period_table, change_dict, time, criterion):
-    """
-    some names are off by a couple of characters due to input errors. For instance,
-
-    SURNAME    GIVEN NAME    MONTH/YEAR
-
-    DERP HERP  BOB JOE       03/2012
-    ERP HERP   JOE BOB       04/2012
-    HERP DERP  BOB JO        05/2012
-    HERP DRP   JE  BOB       06/2012
+    DERP HERP  BOB ŞERBAN    03/2012
+    ERP HERP   BOB ŞERBAN    04/2012
+    HERP DERP  BOB SERBAN    05/2012
+    HERP DERP  BO  SERBAN    06/2012
 
     It's quite obvious that all these variants refer to the same person. On the other hand, we know that
     some differences are real: DERP HERP JOEL is probably somebody else. We're more confident in our
     assumption that several names refer to the same person when the names, though long, differ by only a
     few characters.
 
-    We code in this assumptions by only equating names that feature 3+ or 20+ characters AND
-        a) they differ by 2 or less characters
-        b) they differ by up to 4 characters, but one name has more diacritics
+    We code in this assumptions by only equating names that feature 3+ components or 20+ characters AND they differ
+    by only one character.
 
     :param person_period_table: a table of person-periods (e.g. person-years) as a list of lists
     :param change_dict: a dict in which we mark before (key) and after (value) states
     :param time: time string that stamps in which run of the clean function the changes below occurred
-    :param criterion: string, 'two_char' or 'diacritics'; each one standardises names by different criteria
     :return a cleaned person-period table, with fewer fullname variation / more standard fullnames
     """
 
-    change_dict[time]['standardise_full_names'] = {}
+    change_dict[time]['standardise_long_full_names'] = {}
     standardised_names_table = []
 
     # get list (with duplicates) of full names that feature 3+ names or are 20+ characters long
-    full_names = sorted([(row[0] + '|' + row[1]) for row in person_period_table
+    full_names = sorted([(row[0] + ' | ' + row[1]) for row in person_period_table
                          if (len(row[0].split()) + len(row[1].split()) >= 3)
                          or len(row[0] + row[1]) >= 20])
     # get each fullname's frequency in terms of associated rows
@@ -431,29 +455,20 @@ def standardise_full_names(person_period_table, change_dict, time, criterion):
     # initialise the translation dictionary that we'll use for name updating
     trans_dict = {}
 
-    if criterion == 'two_char':
-        # if full names differ by 2 or less characters, use the version that appears more often
-        fns_2apart = pairwise_ldist(set(full_names), 2)
-        for fn_pair in fns_2apart:
+    # if full names differ by 1 character and at least one surname has 4+ letters (avoids MOS --> POP situations),
+    # use the version that appears more often
+    fns_1apart = pairwise_ldist(set(full_names), 1)
+    for fn_pair in fns_1apart:
+        if len(fn_pair[0].split(' | ')[0]) > 3:
             if fullname_freqs[fn_pair[0]] >= fullname_freqs[fn_pair[1]]:
-                trans_dict[fn_pair[1]] = fn_pair[0]
-            else:
-                trans_dict[fn_pair[0]] = fn_pair[1]
-
-    if criterion == 'diacritics':
-        # if full names differ by 4 or less character and one full name has more diacritics than the other,
-        # use to the version with more diacritics
-        fns_4apart = pairwise_ldist(set(full_names), 4)
-        for fn_pair in fns_4apart:
-            if len(re.findall("Ş|Ţ|Ă|Â|Î", fn_pair[0])) > len(re.findall("Ş|Ţ|Ă|Â|Î", fn_pair[1])):
                 trans_dict[fn_pair[1]] = fn_pair[0]
             else:
                 trans_dict[fn_pair[0]] = fn_pair[1]
 
     # apply the translation dictionary
     for row in person_period_table:
-        if (row[0] + '|' + row[1]) in trans_dict:
-            fullname_split = trans_dict[(row[0] + '|' + row[1])].split('|')
+        if (row[0] + ' | ' + row[1]) in trans_dict:
+            fullname_split = trans_dict[(row[0] + ' | ' + row[1])].split(' | ')
             new_surname = fullname_split[0]
             new_given_name = fullname_split[1]
             standardised_names_table.append([new_surname, new_given_name] + row[2:])
@@ -461,11 +476,11 @@ def standardise_full_names(person_period_table, change_dict, time, criterion):
             standardised_names_table.append(row)
     # add the translation dictionary to the change log
     for k, v in trans_dict.items():
-        change_dict[time]['standardise_full_names'][k] = v
+        change_dict[time]['standardise_long_full_names'][k] = v
 
-    # TODO put example in the test csv to test this function
+    # TODO put example in the test csv to test this function; I feel like there's an example missing here...
 
-    return standardised_names_table, change_dict
+    return deduplicate_list_of_lists(standardised_names_table)
 
 
 def pairwise_ldist(strings_iter, lev_dist):
@@ -508,16 +523,18 @@ def many_name_share(person_period_table, change_dict, time):
     # make list of tuples where 'tuple[0] = full name' and 'tuple[1] = bag of (unique) name components'
     full_name_bags = []
     for row in person_period_table:
-        full_name_string = row[0] + '|' + row[1]
+        full_name_string = row[0] + ' | ' + row[1]
         name_components = set(row[0].split()) | set(row[1].split())
-        full_name_bags.append((full_name_string, name_components))
+        # no duplicates in list, only names with 3+ components
+        if len(name_components) >= 3 and (full_name_string, name_components) not in full_name_bags:
+            full_name_bags.append((full_name_string, name_components))
 
     # pairwise compare all fullname bags (lower triangular, no diagonal)
     for i, x in enumerate(full_name_bags):
         for j, y in enumerate(full_name_bags):
             if i > j:
-                # if names share at least three components, but they're not identical
-                if len(x[1] & y[1]) >= 3 and x[1] != y[1]:
+                # if names share at least three components, and have different number of components
+                if len(x[1] & y[1]) >= 3 and len(x[1]) != len(y[1]):
                     # go with longer name
                     if len(x[1]) >= len(y[1]):
                         trans_dict[y[0]] = x[0]
@@ -526,8 +543,8 @@ def many_name_share(person_period_table, change_dict, time):
 
     # apply the translation dictionary
     for row in person_period_table:
-        if (row[0] + '|' + row[1]) in trans_dict:
-            fullname_split = trans_dict[(row[0] + '|' + row[1])].split('|')
+        if (row[0] + ' | ' + row[1]) in trans_dict:
+            fullname_split = trans_dict[(row[0] + ' | ' + row[1])].split(' | ')
             new_surname = fullname_split[0]
             new_given_name = fullname_split[1]
             longest_names_table.append([new_surname, new_given_name] + row[2:])
@@ -538,137 +555,28 @@ def many_name_share(person_period_table, change_dict, time):
     for k, v in trans_dict.items():
         change_dict[time]['many_name_share'][k] = v
 
-    return longest_names_table, change_dict
+    return deduplicate_list_of_lists(longest_names_table)
 
 
-def remove_overlaps(person_period_table, change_dict, time, year):
+def deduplicate_list_of_lists(list_of_lists):
     """
-
-    A problem with the data (viz. monthly or yearly employment rolls from different institutions) is that
-    sometimes when person X change institution/employer, the receiving institution puts person X on their
-    employment rolls BEFORE the sending institution takes person X off. The result is that for a number of
-    periods X shows up as being in two places at once -- this is nonsensical. If we sort the person-period
-    table by name, year, and month, we sometimes observe the following scenarios:
-
-    (A)                                                     (B)
-
-    SURNAME    GIVEN NAME   INSTITUTION   MONTH/YEAR         SURNAME    GIVEN NAME  INSTITUTION    MONTH/YEAR
-
-    DERP       BOB JOE      ALPHA         03/2012            DERP       BOB JOE     ALPHA          03/2012
-    DERP       BOB JOE      ALPHA         04/2012            DERP       BOB JOE     ALPHA          04/2012
-    DERP       BOB JOE      BETA          04/2012            DERP       BOB JOE     BETA           04/2012
-    DERP       BOB JOE      BETA          05/2012            DERP       BOB JOE     ALPHA          05/2012
-    DERP       BOB JOE      BETA          06/2012            DERP       BOB JOE     BETA           05/2012
-    DERP       BOB JOE      BETA          07/2012            DERP       BOB JOE     BETA           06/2012
+    Remove duplicate rows from table as list of lists quicker than list comparison: turn all rows to strings,
+    put them in a set, them turn set elements to list and add them all to another list.
+    NB: copy-pasted from collector.converter.cleaners, because ain't nobody got time for relative import errors
 
 
-    (C)                                                     (D)
-
-    SURNAME    GIVEN NAME   INSTITUTION   MONTH/YEAR         SURNAME    GIVEN NAME  INSTITUTION    MONTH/YEAR
-
-    DERP       BOB JOE      ALPHA         04/2012            DERP       BOB JOE     BETA           04/2012
-    DERP       BOB JOE      BETA          04/2012            DERP       BOB JOE     BETA           05/2012
-    DERP       BOB JOE      BETA          05/2012            DERP       BOB JOE     BETA           06/2012
-    DERP       BOB JOE      BETA          06/2012            DERP       BOB JOE     BETA           07/2012
-    DERP       BOB JOE      BETA          07/2012            DERP       BOB JOE     ALPHA          07/2012
-
-
-    (E)                                                     (F)
-
-    SURNAME    GIVEN NAME   INSTITUTION   MONTH/YEAR         SURNAME    GIVEN NAME  INSTITUTION    MONTH/YEAR
-
-    DERP       BOB JOE      ALPHA         03/2012            DERP       BOB JOE     ALPHA          03/2012
-    DERP       BOB JOE      ALPHA         04/2012            DERP       BOB JOE     BETA           03/2012
-    DERP       BOB JOE      BETA          04/2012            DERP       BOB JOE     ALPHA          04/2012
-    DERP       BOB JOE      ALPHA         05/2012            DERP       BOB JOE     BETA           04/2012
-    DERP       BOB JOE      BETA          05/2012            DERP       BOB JOE     ALPHA          05/2012
-    DERP       BOB JOE      ALPHA         06/2012            DERP       BOB JOE     BETA           05/2012
-    DERP       BOB JOE      BETA          06/2012
-    DERP       BOB JOE      ALPHA         07/2012
-    DERP       BOB JOE      BETA          07/2012
-    DERP       BOB JOE      ALPHA         08/2012
-    DERP       BOB JOE      BETA          08/2012
-    DERP       BOB JOE      ALPHA         09/2012
-    DERP       BOB JOE      BETA          09/2012
-    DERP       BOB JOE      ALPHA         10/2012
-    DERP       BOB JOE      BETA          10/2012
-    DERP       BOB JOE      BETA          11/2012
-    DERP       BOB JOE      BETA          12/2012
-
-
-    These scenarios show:
-
-    (A) a SINGLE month overlap (in 04/2012) in the MIDDLE of our observation of DERP BOB JOE's career
-
-    (B) a MULTI month overlap (04/2012 - 05/2012) in the MIDDLE of our observation of DERP BOB JOE's career
-
-    (C) a SINGLE month overlap (in 04/2012) at the START of our observation of DERP BOB JOE's career
-
-    (D) a SINGLE month overlap (in 07/2012) at the END of our observation of DERP BOB JOE's career
-
-    (E) a VERY LONG month overlap (04/2012 - 10/2012) in the MIDDLE of our observation of DERP BOB JOE's career
-
-    (F) a MULTI month overlap (03/2012 - 05/2012) for our ENTIRE observation of DERP BOB JOE's career
-
-    Now we assume that person-period sequence patterns, like the ones above, belong to just one person and not to
-    several when we see the following patters:
-        i) identical names across all sequence elements: otherwise,
-        ii) sequence elements in consecutive time order
-        iii) at least two rows for one time unit
-
-    We also assume that overlaps that last more than six months, like in (E), actually indicate two people with the
-    same name that were in the system simultaneously. This is because it is hard to believe that whatever is causing
-    double-counted book-keeping (e.g. closing up shop in the sending institution) would last for more than half a year.
-    In the case of year-level data, I assume that the causes for double-counting do not last more than two years:
-    this is a worst-case assumption in which the yearly data was really sampled from month data, and we have one
-    sample from 12/2003 and another from 01/2004. If we assume six months of maximal double counting, then with
-    perfectly bad month sampling this would give us max two years of overlaps in the year data.
-
-    Generally, the solution is to keep the data that gives more conservative mobility estimates. Thus,
-
-    - for edge scenarios, like (C), (D), and (F), I disregard the overlap data that might generate a transition.
-      Concretely, for (C) this means throwing out the observation for ALPHA 04/2012, for (D) we throw out ALPHA 07/2012,
-      while for (F) we throw out all rows for BETA.
-    - for transitions in the middle of our observation, as in (A) and (B), I throw out the row whose institution is
-      UNLIKE that in the first row: for (A) that means BETA 04/2012 while for (B) that means BETA 04/2012 and
-      BETA 05/2012 -- the preference for the first row institution is arbitrary, it only matters that the rule is
-      applied consistently.
-    - for cases like (E) in which the overlap length is longer than our rule-of-thumb ceiling (6 for month data,
-      2 for year data) we leave the rows as are, on the assumption that sequences actually represent different people,
-      and that a future deduplicator can solve the issue.
-
-    :param person_period_table: a table of person-periods (e.g. person-years) as a list of lists
-    :param change_dict: a dict in which we mark before (key) and after (value) states
-    :param time: time string that stamps in which run of the clean function the changes below occurred
-    :param year: bool, True if it's a person-year table, False if it's a person-month table
-    :return: a person-period table with only one observation per time period (excepting long overlaps)
+    :param list_of_lists: what it sounds list
+    :return list of lists without duplicate rows (i.e. inner lists)
     """
-
-    # first job, find the sequences and get their length
-
-    # if len(overlap) > 6 (for month, else > 2 for year)
-    # do nothing
-    # else
-    # remove the overlap rows whose institutions do not match that of the first overlap row
-    # update  the change dict
-    # return the cleaned table
-
-    pass
+    uniques = {'|'.join(row[:3] + [str(row[3])]) for row in list_of_lists}
+    return [row.split('|') for row in uniques]
 
 
+'''
+import pandas as pd
 if __name__ == '__main__':
-    person_p_table = pd.read_csv('test_table.csv').values.tolist()
-
-    # purge former changelong
-    log_of_changes = 'changelog.txt'
-    with open(log_of_changes, 'w') as log:
-        json.dump({}, log)
-
-    # [print(row) for row in person_period_table]
-    clean_table = clean(person_p_table, log_of_changes, 30, year=False)
-    # print(clean_table)
-    [print(row) for row in clean_table]
-
-    # TODO idea: randomness is useful, and randomness is precisely that whih we can't control or account for
-    # in other words, that which arises from open systems (in the CR sense); hence one core usefulness
-    # of open systems is that they give randomness
+    person_p_table = pd.read_csv('test/test_years_table.csv').values.tolist()
+    c_dict = {}
+    clean_table = clean(person_p_table, c_dict, 30, year=False)
+    #[print(row) for row in clean_table]
+'''
