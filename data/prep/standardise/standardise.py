@@ -6,8 +6,8 @@ import csv
 import json
 import itertools
 from operator import itemgetter
-import Levenshtein
 from datetime import datetime
+from prep.helpers import helpers
 
 
 def clean(ppt, change_dict, range_years, year):
@@ -19,21 +19,23 @@ def clean(ppt, change_dict, range_years, year):
     on some maximal name cleanliness.
 
     :param ppt: a person-period table (e.g. person-years) as a list of lists
-    :param change_dict: a dict where we record before (key) and after (value) state changes
+    :param change_dict: a dict where we record before (key) and after (value) state changes, and an overview of changes
     :param range_years: int, how many years our data covers
     :param year: bool, True if it's a person-year table, False if it's a person-month table
     :return cleaned person-period table
     """
-
-    # let us know if we're working on a year or month table
-    print('  CLEANING YEAR TABLE') if year else print('CLEANING MONTH TABLE')
-    print('    TABLE LENGTH AT BEGINNING: ', len(ppt))
 
     # indicate each function run by the time it begins
     time = datetime.now().time().strftime('%P-%I-%M-%S')
 
     # add new value for the time of the run
     change_dict[time] = {}
+    change_dict['overview'].append(['RAN AT TIME', time])
+    change_dict['overview'].append(['TABLE LENGTH AT BEGINNING', len(ppt)])
+
+    # let us know if we're working on year or month table
+    print('  CLEANING YEAR TABLE') if year else print('CLEANING MONTH TABLE')
+    print('    TABLE LENGTH AT BEGINNING: ', len(ppt))
 
     # start state, unique number of full names
     preclean_num_fullnames = len({row[0] + ' ' + row[1] for row in ppt})
@@ -68,8 +70,12 @@ def clean(ppt, change_dict, range_years, year):
     postclean_num_fullnames = len({row[0] + ' ' + row[1] for row in ppt})
 
     # show what this run has accomplished
-    print("    NUMBER OF FULL NAMES STANDARDISED: ", (preclean_num_fullnames - postclean_num_fullnames))
     print("    TABLE LENGTH AT END: ", len(ppt))
+    print("    NUMBER OF FULL NAMES STANDARDISED: ", (preclean_num_fullnames - postclean_num_fullnames))
+
+    change_dict['overview'].append(['TABLE LENGTH AT END', len(ppt)])
+    change_dict['overview'].append(['NUMBER OF FULL NAMES STANDARDISED',
+                                    (preclean_num_fullnames - postclean_num_fullnames)])
 
     # keep running the cleaners until we are no longer standardising names
     if postclean_num_fullnames == preclean_num_fullnames:
@@ -81,9 +87,9 @@ def clean(ppt, change_dict, range_years, year):
 
 def make_log_file(change_dict, out_path):
     """
-    Makes a log file (as csv) of before and after states, so we can see what our cleaners did.
-    :param change_dict: a three level dict binning before-after changes by the function that did the
-            changes and the run of 'clean' in which they took place.
+    Makes a log file (as csv) of before and after states, so we can see what our functions changed.
+    :param change_dict: a three level dict binning before-after states by the function that did the
+            changes and the time of the run of 'prep.standardise.clean' which invoked said functions.
             e.g. {
                   'time_of_run_1' : {'func1' : {'before1' : 'after1', 'before2' : 'after2'},
                   'time_of_run_2' : {'func2' : {'before1' : 'after1', 'before2' : 'after2'}
@@ -96,9 +102,13 @@ def make_log_file(change_dict, out_path):
         writer = csv.writer(out_p)
         writer.writerow(['time', 'function', 'before', 'after'])
         for time, funcs in change_dict.items():  # run-level, key = time of run
-            for function, transforms in funcs.items():  # function level, key = e.g. "move surname"
-                for before, after in transforms.items():  # transform level, key = what we changed
-                    writer.writerow([time, function, before, after])
+            if time != 'overview':  # leave the overview stats for the end
+                for function, transforms in funcs.items():  # function level, key = e.g. "move surname"
+                    for before, after in transforms.items():  # transform level, key = what we changed
+                        writer.writerow([time, function, before, after])
+        writer.writerow(["OVERVIEW"])
+        for i in change_dict['overview']:
+            writer.writerow(i)
 
 
 def move_surname(person_period_table, change_dict, time):
@@ -200,7 +210,7 @@ def move_surname(person_period_table, change_dict, time):
                 # eliminate parentheses in all other surnames too
                 surname = row[0].replace('(', '').replace(')', '')
                 corrected_data_table.append([surname] + row[1:])
-    return deduplicate_list_of_lists(corrected_data_table)
+    return helpers.deduplicate_list_of_lists(corrected_data_table)
 
 
 def name_order(person_period_table):
@@ -231,7 +241,7 @@ def name_order(person_period_table):
         sorted_surnames = ' '.join(sorted(row[0].split()))
         sorted_given_names = ' '.join(sorted(row[1].split()))
         name_sorted_table.append([sorted_surnames, sorted_given_names] + row[2:])
-    return deduplicate_list_of_lists(name_sorted_table)
+    return helpers.deduplicate_list_of_lists(name_sorted_table)
 
 
 def lengthen_name(person_period_table, change_dict, time, range_years, surname=True, year=False):
@@ -362,7 +372,7 @@ def lengthen_name(person_period_table, change_dict, time, range_years, surname=T
         # move up the index from whence we'll start the next search
         start_search = high_bound
 
-    return deduplicate_list_of_lists(long_name_table)
+    return helpers.deduplicate_list_of_lists(long_name_table)
 
 
 def get_sequence_bounds(pers_per_tab, ref_row, range_years, surname=False, year=False):
@@ -457,7 +467,7 @@ def standardise_long_full_names(person_period_table, change_dict, time):
 
     # if full names differ by 1 character and at least one surname has 4+ letters (avoids MOS --> POP situations),
     # use the version that appears more often
-    fns_1apart = pairwise_ldist(set(full_names), 1)
+    fns_1apart = helpers.pairwise_ldist(set(full_names), 1)
     for fn_pair in fns_1apart:
         if len(fn_pair[0].split(' | ')[0]) > 3:
             if fullname_freqs[fn_pair[0]] >= fullname_freqs[fn_pair[1]]:
@@ -480,19 +490,7 @@ def standardise_long_full_names(person_period_table, change_dict, time):
 
     # TODO put example in the test csv to test this function; I feel like there's an example missing here...
 
-    return deduplicate_list_of_lists(standardised_names_table)
-
-
-def pairwise_ldist(strings_iter, lev_dist):
-    """
-    :param strings_iter: iterable (e.g. set, list) of strings
-    :param lev_dist: int indicating the desired Levenshtein distance
-    :return list of 2-tuples of full names lev_dist apart, alphabetically sorted by first name in tuple
-    NB: pairwise comparison is lower triangular, no diagonals
-     """
-    return sorted(list(filter(None, [(x, y) if 0 < Levenshtein.distance(x, y) <= lev_dist else ()
-                                     for i, x in enumerate(strings_iter)
-                                     for j, y in enumerate(strings_iter) if i > j])))
+    return helpers.deduplicate_list_of_lists(standardised_names_table)
 
 
 def many_name_share(person_period_table, change_dict, time):
@@ -555,28 +553,4 @@ def many_name_share(person_period_table, change_dict, time):
     for k, v in trans_dict.items():
         change_dict[time]['many_name_share'][k] = v
 
-    return deduplicate_list_of_lists(longest_names_table)
-
-
-def deduplicate_list_of_lists(list_of_lists):
-    """
-    Remove duplicate rows from table as list of lists quicker than list comparison: turn all rows to strings,
-    put them in a set, them turn set elements to list and add them all to another list.
-    NB: copy-pasted from collector.converter.cleaners, because ain't nobody got time for relative import errors
-
-
-    :param list_of_lists: what it sounds list
-    :return list of lists without duplicate rows (i.e. inner lists)
-    """
-    uniques = {'|'.join(row[:3] + [str(row[3])]) for row in list_of_lists}
-    return [row.split('|') for row in uniques]
-
-
-'''
-import pandas as pd
-if __name__ == '__main__':
-    person_p_table = pd.read_csv('test/test_years_table.csv').values.tolist()
-    c_dict = {}
-    clean_table = clean(person_p_table, c_dict, 30, year=False)
-    #[print(row) for row in clean_table]
-'''
+    return helpers.deduplicate_list_of_lists(longest_names_table)

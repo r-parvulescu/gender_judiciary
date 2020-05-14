@@ -8,7 +8,7 @@ import statistics
 import pandas as pd
 
 
-def person_years(person_month_table, month):
+def person_years(person_month_table, month, change_dict):
     """
     Turn a person-month table into a person-year table by sampling from the specified month, and if that month is
     missing for the person, from the next available month. E.g. if we want to sample April, but that month is missing
@@ -24,6 +24,7 @@ def person_years(person_month_table, month):
 
     :param person_month_table: table of person-months, as a list of lists
     :param month: int: 1-12
+    :param change_dict: a dict where we record before (key) and after (value) state changes, and an overview of changes
     :return a person-year level table, with only one month observation, per person, per year
     """
 
@@ -68,8 +69,11 @@ def person_years(person_month_table, month):
     # remove the month column
     one_obs_per_year = [row[:-1] for row in one_obs_per_year]
 
-    print('AVERAGE AND STDEV MONTH SAMPLED: %s, %s' % (round(statistics.mean(sampled_months), 2),
-                                                       round(statistics.stdev(sampled_months), 2)))
+    print('AVERAGE AND STDEV OF MONTH SAMPLED: %s, %s' % (round(statistics.mean(sampled_months), 2),
+                                                          round(statistics.stdev(sampled_months), 2)))
+
+    change_dict['overview'].append(['AVERAGE AND STDEV OF MONTH SAMPLED', round(statistics.mean(sampled_months), 2),
+                                    round(statistics.stdev(sampled_months), 2)])
 
     return one_obs_per_year
 
@@ -167,9 +171,3 @@ def set_interyear_mobility(person_year_table):
                 moved = "out"
             table_with_mobility.append(person[idx][:5] + [moved] + person[idx][5:])
     return table_with_mobility
-
-
-if __name__ == '__main__':
-    table = pd.read_csv('sample_test.csv').values.tolist()
-    pers_yrs = person_years(table, 4)
-    [print(py) for py in pers_yrs]

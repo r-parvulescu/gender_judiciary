@@ -23,7 +23,7 @@ def preprocess(profession):
     :param profession: string, "judges", "prosecutors", "notaries" or "executori".
     :return: None
     """
-    '''
+
     ppts = {'year': [[], '_year.csv'], 'month': [[], '_month.csv']}
     infile_directory = 'collector/converter/output/' + profession
     outfile_directory = 'prep/standardise/' + profession
@@ -36,15 +36,17 @@ def preprocess(profession):
             table_as_list = pd.read_csv(file_path).values.tolist()
             ppts[period][0] = table_as_list
 
+    # initialise the dictionary in which we keep track of changes
+    change_dict = {'overview': []}
+
     # sample one month from the person-month data to get year-level data,
     # then combine the sample with the original year data
     # NB: the sampler drops the month column -- this is necessary for row deduplication to work properly
     sm = sample.get_sampling_month(profession)
-    year_sampled_from_months = sample.person_years(ppts['month'][0], sm)
+    year_sampled_from_months = sample.person_years(ppts['month'][0], sm, change_dict)
     ppts['year'][0].extend(year_sampled_from_months)
 
     # run name standardiser on the combined table
-    change_dict = {}
     year_range, year = 30, True
     ppts['year'][0] = standardise.clean(ppts['year'][0], change_dict, year_range, year)
     standardise.make_log_file(change_dict, outfile_directory + '/change_log.csv')
@@ -56,16 +58,16 @@ def preprocess(profession):
     outfile = outfile_directory + '/' + profession + '_preprocessed.csv'
     with open(outfile, 'w') as out_file:
         writer = csv.writer(out_file)
-        new_headers = ["cr", "nume", "prenume", "sex", "instituţie", "an", "ca cod", "trib cod", "jud cod", "nivel"]
+        new_headers = ["cod rând", "nume", "prenume", "sex", "instituţie", "an", "ca cod", "trib cod", "jud cod",
+                       "nivel"]
         writer.writerow(new_headers)
         row_count = 0
         for row in ppts['year'][0]:
             row_count += 1
             writer.writerow([row_count] + row)
-    '''
 
     # run dedupe to get person ids; the dedupe package only takes csv's
-    pids.cluster(profession)
+    # pids.cluster(profession)
 
 
 def add_gender_inst_profile(person_period_table, profession):
