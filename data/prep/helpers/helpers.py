@@ -2,6 +2,8 @@
 Handy helpers.
 """
 
+import itertools
+import operator
 import pandas as pd
 import Levenshtein
 
@@ -39,17 +41,37 @@ def pairwise_ldist(strings_iter, lev_dist, sort_key=None):
         return sorted(list_of_tuples_ldist_apart, key=sort_key)
 
 
-def print_full_names_ldist_apart(csv_file_path, l_dist):
+def print_full_names_ldist_apart(csv_file_path, l_dist, year_range=False):
     """
     Prints out a sorted column of all full names that are ldist or more apart in terms of Levenshtein distance.
     This helps weed out typos by hand that are too subtle to leave to automated functions.
     :param csv_file_path: string, file path to a csv file
     :param l_dist: int, maximum Levenshtein/edit distance between two full names that you want to compare
+    :param year_range: bool, True if we want each to see the range of years for each full name of a pair l_dist apart
     :return: None
     """
     df = pd.read_csv(csv_file_path)
     table = df.values.tolist()
-    unique_full_names = {row[1] + ' | ' + row[2] for row in table}  # row[1] = surnames, row[2] = given names
+    unique_fns = set(row[1] + ' | ' + row[2] for row in table)  # row[1] = surnames, row[2] = given names
+    full_name_ldist = pairwise_ldist(unique_fns, l_dist)
 
-    full_name_ldist = pairwise_ldist(unique_full_names, l_dist)
-    [print(full_name_pair) for full_name_pair in full_name_ldist]
+    print('NUMBER OF FULL NAME PAIRS %s LEVENSTHEIN DISTANCE APART: %s' % (l_dist, len(full_name_ldist)))
+
+    # if we want to see the first and last years in which a full name appears
+    # NB: this doesn't account for gaps in the middle
+    if year_range:
+        # make a list of tuples, (full name, year), then sort it by full name and year (in that order)
+        full_names_with_years = sorted([(row[1] + ' | ' + row[2], str(row[5])) for row in table],  # row[5] = year
+                                       key=operator.itemgetter(0, 1))
+
+        # make a dict where 'key = full name' and 'value = first year - last year'
+        fns_ranges = {full_name: fn_group[0][1] + '-' + fn_group[-1][1] for full_name, [*fn_group]
+                      in itertools.groupby(full_names_with_years, key=operator.itemgetter(0))}
+
+        #  print out each the full name pair that is l_dist apart, with each full name's year range
+        for fn_pair in full_name_ldist:
+            print('"%s": "%s"' % (fn_pair[0], fn_pair[1]))
+            print(fns_ranges[fn_pair[0]], fns_ranges[fn_pair[1]])
+
+    else:
+        [print(full_name_pair) for full_name_pair in full_name_ldist]
