@@ -10,7 +10,7 @@ from datetime import datetime
 from prep.helpers import helpers
 
 
-def clean(ppt, change_dict, range_years, year):
+def clean(ppt, change_dict, range_years, year, profession):
     """
     Applies cleaners to a person-period table it until there's nothing left to clean
 
@@ -22,23 +22,25 @@ def clean(ppt, change_dict, range_years, year):
     :param change_dict: a dict where we record before (key) and after (value) state changes, and an overview of changes
     :param range_years: int, how many years our data covers
     :param year: bool, True if it's a person-year table, False if it's a person-month table
+    :param profession:  string, "judges", "prosecutors", "notaries" or "executori".
     :return cleaned person-period table
     """
 
     # indicate each function run by the time it begins
     time = datetime.now().time().strftime('%P-%I-%M-%S')
+    # start state, unique number of full names
+    preclean_num_fullnames = len({row[0] + ' ' + row[1] for row in ppt})
 
     # add new value for the time of the run
     change_dict[time] = {}
     change_dict['overview'].append(['RAN AT TIME', time])
     change_dict['overview'].append(['TABLE LENGTH AT BEGINNING', len(ppt)])
+    change_dict['overview'].append(['NUMBER OF UNIQUE FULL NAMES AT BEGINNING', preclean_num_fullnames])
 
     # let us know if we're working on year or month table
     print('  CLEANING YEAR TABLE') if year else print('CLEANING MONTH TABLE')
     print('    TABLE LENGTH AT BEGINNING: ', len(ppt))
-
-    # start state, unique number of full names
-    preclean_num_fullnames = len({row[0] + ' ' + row[1] for row in ppt})
+    print('    NUMBER OF UNIQUE FULL NAMES AT BEGINNING: ', preclean_num_fullnames)
 
     # run cleaners
 
@@ -66,14 +68,20 @@ def clean(ppt, change_dict, range_years, year):
     print('      RUNNING: MANY NAME SHARE')
     ppt = many_name_share(ppt, change_dict, time)
 
+    # run the corrected names throug the manually-compiled corrector that catches subtle errors
+    print('      RUNNING: FULL NAME AD-HOC CORRECTOR')
+    ppt = full_name_adhoc_corrector(ppt, profession)
+
     # end state, unique number of full names
     postclean_num_fullnames = len({row[0] + ' ' + row[1] for row in ppt})
 
     # show what this run has accomplished
     print("    TABLE LENGTH AT END: ", len(ppt))
+    print('    NUMBER OF UNIQUE FULL NAMES AT END', postclean_num_fullnames)
     print("    NUMBER OF FULL NAMES STANDARDISED: ", (preclean_num_fullnames - postclean_num_fullnames))
 
     change_dict['overview'].append(['TABLE LENGTH AT END', len(ppt)])
+    change_dict['overview'].append(['NUMBER OF UNIQUE FULL NAMES AT END', postclean_num_fullnames])
     change_dict['overview'].append(['NUMBER OF FULL NAMES STANDARDISED',
                                     (preclean_num_fullnames - postclean_num_fullnames)])
 
@@ -82,7 +90,7 @@ def clean(ppt, change_dict, range_years, year):
         return sorted(ppt, key=itemgetter(0, 1, 3)) if year else sorted(ppt, key=itemgetter(0, 1, 3, 4))
     else:
         print('-------------NAME CLEANER RECURSED-------------')
-        return clean(ppt, change_dict, range_years, year=year)  # recurse
+        return clean(ppt, change_dict, range_years, year=year, profession=profession)  # recurse
 
 
 def make_log_file(change_dict, out_path):
@@ -554,3 +562,130 @@ def many_name_share(person_period_table, change_dict, time):
         change_dict[time]['many_name_share'][k] = v
 
     return helpers.deduplicate_list_of_lists(longest_names_table)
+
+
+def full_name_adhoc_corrector(person_period_table, profession):
+    """
+    After undergoing all the other transformations, there might still be names that refer to the same person but
+    have not been standardised, because the differences are too subtle for a machine. Human-made translation
+    dictionaries exist for this purpose, at the end of this script.
+
+    Use these translation dictionaries to standardise full names.
+
+    :param person_period_table: a table of person periods, as a list of lists
+    :param profession: string, "judges", "prosecutors", "notaries" or "executori".
+    :return: a person-period table with full names standardised according to the translation dictionaries.
+    """
+
+    translation_dictionaries = {'judges': judges_fn_transdict, 'prosecutors': prosecutors_fn_transdict}
+    td = translation_dictionaries[profession]
+
+    corrected_table = []
+    for row in person_period_table:
+        full_name = row[0] + ' | ' + row[1]
+        if full_name in td:
+            new_fn = td[full_name].split(' | ')
+            corrected_table.append([new_fn[0]] + [new_fn[1]] + row[2:])
+        else:
+            corrected_table.append(row)
+
+    return corrected_table
+
+
+judges_fn_transdict = {"AILENE | ANCUŢA": "AILENEI | ANCUŢA", "ANGELESCU | CRISTIAN": "ANGELESCU | CRISTIANA",
+                       "APOSTOL | MARINA": "APOSTOL | MARIANA", "AVELOAIE | ION": "AVELOAIE | IOAN",
+                       "AVRAM | AURICA": "AVRAM | AURICĂ", "BICĂ | ALEXANDRU": "BICĂ | ALEXANDRA",
+                       "BIRCEANU | TITI": 'BIRCEANU | TITU', "BISTREANU | GHEORGHE": "BISTEANU | GHEORGHE",
+                       "BOCU | NATALIA": "BOCA | NATALIA", "BORIDEANU | IOAN": "BORDEANU | IOAN",
+                       "BRAŞOVEANU | MARINA": "BRAŞOVEAN | MARINA", "BRÂNZĂ | LUCICA": "BRÂNZĂ | LUCIA",
+                       "BUDA | MARIAN": "BUDĂ | MARIAN", "BULACU | CONSTANTINA": "BURLACU | CONSTANTINA",
+                       "BURLEA | MIRCEA": "BURLE | MIRCEA", "BÂLBÂIE | ANA MARIA": "BÂLBÂIE | ANAMARIA",
+                       "BĂRBULESCU | ADY": "BĂRBULESCU | ADI", "COBZARIU | MARCELA": "COBZARIU | MARICELA",
+                       "CORLĂŢEANU | SIMONA": "CORLĂŢEANU | SIMINA", "COSTACHE | ANDREEA": "COSTACHE | ANDREA",
+                       "CREŢEANU | ANAMARIA": "CREŢEANU | ANA MARIA", "CREŢU | ANDREEA": "CREŢU | ANDREA",
+                       "CRÂŞMARU | GABRIELA": "CRÂŞMARU | GABRIEL", "CURELEA | IOAN": "CURELEA | ION",
+                       "DARAGIA | DELIA": "DARAGIU | DELIA", "DUNCA | GHEORGHE": "DINCA | GHEORGHE",
+                       "DRĂGAN | ION": "DRĂGAN | IOAN", "DUMITRACHE | JANA": "DUMITRACHE | JEANA",
+                       "DUMITRU | CRISTINA": "DUMITRIU | CRISTINA", "DUŢĂ | FLORICA": "DUŢĂ | FLORICĂ",
+                       "EFTENOIU | GHEORGHITA": "EFTENOIU | GHEORGHIŢĂ", "FILIMON | CORNELICA": "FILIMON | CORNELIA",
+                       "EFTENOIU | GHEORGHIŢA": "EFTENOIU | GHEORGHIŢĂ", "FIR | CARMEN CORINA": "FIŢ | CARMEN CORINA",
+                       "FLOREA | MIHĂIŢĂ": "FLOAREA | MIHĂIŢĂ", "FUGHEL | MIUŢA": "FUGEL | MIUŢA",
+                       "FÂŞIE | ŞTEFANIA": "FÂŞIE | ŞTEFANA", "FĂLĂMAS | NICOLAE": "FĂLĂMAŞ | NICOLAE",
+                       "GALAN | ILIE": "GALAON | ILIE", "GAVRIL | MIHAELA": "GAVRILĂ | MIHAELA",
+                       "GAVRIL | CIPRIAN": "GAVRILĂ | CIPRIAN", "GHERGHEŞAN | PETRICĂ": "GHERGHEŞANU | PETRICĂ",
+                       "GIOACĂŞ | JENICĂ": "GIOACĂŞ | JĂNICĂ", "GLODEANU | FLORICA": "GLODEAN | FLORICA",
+                       "GRANCEA | GABRIELA": "GRANCEA | GABRIEL", "GULEA | VLADISLAU": "GULEA | VLADISLAV",
+                       "GUTA | IOAN": "GUTA | ION", "GĂZDAC | FLOAREA": "GĂZDAC | FLOARE",
+                       "HOLBEA | ROMICA": "HOLBEA | ROMICĂ", "ILIAŞ | GEORGETA": "ILAŞ | GEORGETA",
+                       "IVĂNIŞI | DORINA": "IVĂNIŞ | DORINA", "ŞELEA | DINU": "JELEA | DINU",
+                       "LAZAR | NICOLETA": "LAZĂR | NICOLETA", "LAZAR | ELISABETA": "LAZĂR | ELISABETA",
+                       "LAZAR | FLORICA": "LAZĂR | FLORICA", "LICA | LUCIAN": "LICĂ | LUCIAN",
+                       "LUNCA | CONSTANTIN": "LUNCĂ | CONSTANTIN", "LUNGU | MARIN": "LUNGU | MARIAN",
+                       "MAFTEI | MIHAELA": "MATEI | MIHAELA", "MANCIU | PAUL": "MANGIU | PAUL",
+                       "MARIN | NINA": "MARIN | MINA", "MARINESCU | ION": "MARINESCU | IOAN",
+                       "MARTIN | PAUL": "MARTIN | RAUL", "MEŞTER | ANDREEA": "MEŞTER | ANDREA",
+                       "MIHNEA | IOAN": "MICHNEA | IOAN", "MOLDOVAN | GEORGIANA": "MOLDOVAN | GEORGINA",
+                       "MORARIU | ADRIANA": "MURARIU | ADRIANA", "MORCOV | CRISTINA": "MORCOV | CRISTIANA",
+                       "MORTU | MARIAN": "MORTU | MARIN", "MREJERU | TEODOR": "MREJERU | THEODOR",
+                       "MUNTEANU | GIANINA": "MUNTEAN | GIANINA", "MUNTEANU | RODICA": "MUNTEAN | RODICA",
+                       "MUŞAT | TANCUŢA": "MUŞAT | TĂNCUŢA", "MAIEREAN | ANA": "MĂIEREAN | ANA",
+                       "MĂIEREANU | ANA": "MĂIEREAN | ANA", "MĂNIGUŢIU | NICOLAE": "MĂNIGUŢIU | NICULAE",
+                       "NEAGU | RUXANDA": "NEAGU | RUXANDRA", "OLARIU | TUDOR": "OLARIU | TODOR",
+                       "OLTEANU | MIHAELA": "OLTEAN | MIHAELA", "ONEA | ANDREEA": "OANEA | ANDREEA",
+                       "ORFESCU | ARISTICA": "ORFESCU | ARISTICĂ", "PARFENIE | MĂRIA": "PARFENIE | MARIA",
+                       "PINTEA | VASILICA": "PINTEA | VASILICĂ", "POPA | FLOARE": "POPA | FLOAREA",
+                       "POP | FLORINA PATRICIA SORANA": "POP | FLORINA PATRICIA SORINA",
+                       "PUTICIU | FLOARE": "PUTICIU | FLOAREA", "PUŞCARIU | EUGENIA": "PUŞCAŞIU | EUGENIA",
+                       "PUŞCASIU | EUGENIA": "PUŞCAŞIU | EUGENIA", "PĂCURARU | VERONICA": "PĂCURAR | VERONICA",
+                       "ROHNEANU | CLAUDIA": "ROHNEAN | CLAUDIA", "ROMANESCU | AGENTINA": "ROMANESCU | ARGENTINA",
+                       "ROTARU | ANA MARIA": "ROTARU | ANAMARIA", "SPEIANU | IOAN": "SPEIANU | ION",
+                       "SPRÂNCEANA | DANIELA": "SPRÂNCEANĂ | DANIELA", "SPÂNU | MARIN": "SPÂNU | MARIAN",
+                       "STAICU | MIRELA": "STANCU | MIRELA", "STOENESCU | CRISTINA": "STOENESCU | CRISTIANA",
+                       "STOICAN | ION": "STOICA | ION", "STROE | RUXANDA": "STROE | RUXANDRA",
+                       "STROIA | OANA": "STROIU | OANA", "STRÂMBEANU | LUCIA": "STRÂMBEANU | LUCICA",
+                       "STĂNIŞOR | VETA": "STĂNIŞOR | VERA", "SZOKE | ANDREEA": "SZOKE | ANDREA",
+                       "TUDOSE | CORNELICA": "TUDOSE | CORNELIA", "TÂRLION | LORENJA": "TÂRLION | LORENA",
+                       "VASILE | ALIXANDRI": "VASILE | ALEXANDRI", "VOICU | ANA MARIA": "VOICU | ANAMARIA",
+                       "VINTILĂ | NARCISA": "VINŢILĂ | NARCISA", "ŞERBAN | MARIA": "ŞERBAN | MARIAN",
+                       "TENESCU | MĂRIOARA": "ŢENESCU | MĂRIOARA", "ŢERMURE | IOANA": "ŢĂRMURE | IOANA",
+                       "ŢIRLEA | IRINA": "ŢÂRLEA | IRINA", "ARDELEANU | ANTONETA": "ARDELEANU | ANTOANETA",
+                       "ARMĂ | MIRELA": "ARAMĂ | MIRELA", "ARSENI | ALEXANDR": "ARSENI | ALEXANDRA"}
+
+prosecutors_fn_transdict = {"ARUNCUTEAN | IONELIA": "ARUNCUTEAN | IONELA", "BALOG | MARIA": "BALOGH | MARIA",
+                            "BORDEIAN | CORNELIU": "BORDEIANU | CORNELIU", "BRATU | IOLANDA": "BRATU | VIOLANDA",
+                            "BRĂILA | GEORGE": "BRĂILA | GEORGEL", "BURNAR | LIVIA": "BURNAR | LIDIA",
+                            "BUTNARIU | DANIELA": "BUTANARIU | DANIELA", "BĂCAN | IOAN": "BĂCAN | ION",
+                            "BĂDICA | ELENA": "BĂDICĂ | ELENA", "CHIOCHIU | CĂTĂLI N": "CHIOCHIU | CĂTĂLIN",
+                            "CHIRILĂ | NICULAI": "CHIRILĂ | NICULAIE", "CIUCU | IOAN": "CIUCU | ION",
+                            "COJOCAR | RUSANDA": "COJOCARU | RUSANDA", "COLŢ | MIHAI": "COLŢ | MIHAIL",
+                            "CÂMPEANU | CRISTIANA": "CÂMPEANU | CRISTINA", "DICU | MĂRIOARĂ": "DICU | MĂRIOARA",
+                            "DILAC | LUCIAN": "DIEAC | LUCIAN", "DORDE | ALEXANDRA": "DORDEA | ALEXANDRA",
+                            "ENACHE | MĂDĂLIN": "ENACHE | MĂDĂLINA", "FUMUREANU | CRISTIANA": "FUMUREANU | CRISTINA",
+                            "GRAURE | GHEORGHE": "GRAUR | GHEORGHE", "GRIGORE | IONEL": "GRIGORIE | IONEL",
+                            "GROSU | MIHAIELA": "GROSU | MIHAELA", "HOTNOG | ION": "HOTNOG | IOAN",
+                            "IFRIM | CORNELIU": "IFTIM | CORNELIU", "IOAN | VASILE": "ION | VASILE",
+                            "IOAN | VICTORIA": "IVAN | VICTORIA", "IONASCU | ZAHARIA": "IONASCU | ZAHARIE",
+                            "LAZAR | ANCUŢA": "LAZĂR | ANCUŢA", "LAZAR | AUGUSTIN": "LAZĂR | AUGUSTIN",
+                            "MANACHE | FLORIN": "MANACHE | FLORIAN", "MAXIM | MIHAIELA": "MAXIM | MIHAELA",
+                            "MORCOV | MILIANA": "MARCOV | MILIANA", "MUNTEANU | DRAGOŞ": "MUNTEAN | DRAGOŞ",
+                            "MUNTEAN | FLORIAN": "MUNTEANU | FLORIAN", "CECĂLACEAN | MANUELA": "CECĂLĂCEAN | MANUELA",
+                            "NICULICEA | NICULAE": "NICULICEA | NICOLAE", "OLTEANU | VIORICA": "OLTEAN | VIORICA",
+                            "OPRIŞCAN | LIVIU": "OPRIŞAN | LIVIU", "PLEŞA | MONICA": "PLEŞEA | MONICA",
+                            "POIANĂ | ION": "POIANĂ | IOAN", "POP | GEORGHE ION": "POP | GEORGE ION",
+                            "ROTUNDU | SIMION": "ROTUNDU | SIMON", "SADÎC | ZAFER": "SADÂC | ZAFER",
+                            "SANDU | MARCELA": "SANDU | MARCEL", "SUTIMA | LIVIU": "SUTIMAN | LIVIU",
+                            "TATU | CĂLINA": "TATU | CĂLIN", "TITIAN | DANA": "TIŢIAN | DANA",
+                            "TĂNASE | FLORIN": "TĂNASE | FLORIAN", "TĂNASE | DOINIŢA": "TĂNASĂ | DOINIŢA",
+                            "VASILACHI | LUMINIŢA": "VASILACHE | LUMINIŢA", "VEŞTEMEAN | IOAN": "VEŞTEMEAN | ION",
+                            "VLADU | MINODORA": "VLAD | MINODORA", "VOICU | ADRIAN": "VOICU | ADRIANA",
+                            "VORONEANU | DENISIA": "VORONEANU | DENISA", "ŞANDRU | ION": "ŞANDRU | IOAN"}
+
+# TODO two more problems
+#  a) sometimes one year is missing in an otherwise continuous sequence
+#  b) for some of the common names, the slight name changes slices sequences up incorrectly -- eg. CONSTANTIN ION
+#     and CONSTANTIN IOAN, who are two different people with scrambled sequences because of incorrect name
+#     transcription through their career
+#   c) why was DOBRIN | RODICA not converted to DOBRIN MORMOE | RODICA?
+#   d) need to do another full-name extend on the full sorted only by first full name, and given name sorted only
+#      by first given name; in both cases, need to put a limit in for year jumps, i.e. stop if year jumps
+#     e.g. see the problem with RISTEA | RAMONA vs RISTEA IOANA RAMONA
