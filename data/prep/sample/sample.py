@@ -91,14 +91,9 @@ def get_sampling_month(profession):
     :param profession: string, "judges", "prosecutors", "notaries" or "executori".
     :return: int, the sample month
     """
-    if profession == 'judges':
-        return 4
-    if profession == 'prosecutors':
-        return 9
-    if profession == 'notaries':
-        return 0
-    if profession == 'executori':
-        return 0
+
+    sampling_months = {'judges': 4, 'prosecutors': 9, 'notaries': 0, 'executori': 0}
+    return sampling_months[profession]
 
 
 def month_availability(person_month_table, profession):
