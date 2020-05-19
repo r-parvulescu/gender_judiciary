@@ -11,18 +11,15 @@ import dedupe
 from unidecode import unidecode
 
 
-def pids(csv_person_years, profession):
+def pids(person_year_table, profession):
     """
-    Takes a csv of person years, deduplicates it to make sure nobody is in two places at once, interpolates missing
-    person-years, assigns a new column for distinct person-years, and writes the output to file.
+    Takes a table of person years, cleans it to make sure nobody is in two or more places at once, interpolates missing
+    person-years, assigns each person-year a unique person-level ID, and returns the updated table.
 
-    :param csv_person_years: a path to a csv file of with person-years
+    :param person_year_table: a table of person-years as a list of lists
     :param profession: string, "judges", "prosecutors", "notaries" or "executori"
-    :return: None
+    :return: a person-year table without overlaps, with interpolated person-years, and with unique person IDs
     """
-
-    person_year_table = pd.read_csv(csv_person_years)
-    person_year_table = person_year_table.values.tolist()
 
     # remove overlaps so no person is in 2+ places in one year
     distinct_persons = correct_overlaps(person_year_table, profession)
@@ -167,7 +164,7 @@ def correct_overlaps(person_year_table, profession):
                 # CASE (G)
                 # if the overlap is of 3+ years, split up the person-year
                 if len(ps) - len(years_and_workplaces) > 2:
-                    distinct_persons.extend(split_sequences(ps))
+                    distinct_persons.extend(split_sequences(ps, change_log))
 
                 else:  # the overlap is of one or two years
 
@@ -327,7 +324,7 @@ def if_transition(years_and_workplaces, overlap_years):
         return None
 
 
-def split_sequences(person_sequence):
+def split_sequences(person_sequence, change_log):
     """
 
     NB: BUILT ONLY FOR SEQUENCES THAT FEATURE ONLY ONE NAME IN 2 PLACES, WILL NOT WORK FOR ONE NAME IN 3+ PLACES
@@ -365,6 +362,7 @@ def split_sequences(person_sequence):
 
 
     :param person_sequence: a year-ordered sequence of person-years sharing a full name; as a list of lists
+    :param change_log: a list (to be written as a csv) marking the before and after states of the person-sequence
     :return: a list of person-sequences; in the example above, a list with [B, C]
     """
 
@@ -386,8 +384,21 @@ def split_sequences(person_sequence):
     if len(p_seqs) != 2:
         raise ValueError("CAN'T SPLIT SEQUENCE INTO GROUPS, SOMETHING WRONG WITH INPUT SEQUENCE")
 
-    # otherwise, return the groups
+    # otherwise, update the change log and return the groups
     else:
+
+        # because we'll be visually inspecting the changes, we want the output table to be in the format
+        # COL 1 = input sequence, COL 2 = output sequences
+
+        # side-by-side for input sequence and first output sequence
+        for idx, pers_yr in enumerate(p_seqs[0]):
+            change_log.append(person_sequence[idx] + ['', ''] + pers_yr)
+
+        # side-by-side for input sequence and second output sequence
+        for idx, pers_yr in enumerate(p_seqs[1]):
+            change_log.append(person_sequence[len(p_seqs[0]) - 1 + idx] + ['', ''] + pers_yr)
+        change_log.append('\n')
+
         return p_seqs
 
 
@@ -512,3 +523,9 @@ def cluster(profession):
 # remove the edge years -- too much of this signal is censoring noise, would rather keep something I know
 # is bad than assume/hope/pretend it'll turn out good
 # ps = [py for py in pers_seq if py[4] != censor_years[0] and py[4] != censor_years[1]]  # py[4] = year
+
+
+if __name__ == '__main__':
+    pers_yr_table = pd.read_csv('test_person_years_table.csv')
+    pers_yr_table = pers_yr_table.values.tolist()
+    pids(pers_yr_table, 'test')
