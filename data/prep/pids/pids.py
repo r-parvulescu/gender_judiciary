@@ -30,7 +30,7 @@ def pids(person_year_table, profession):
     # give each person-year a person-year ID
     distinct_persons = unique_person_ids(distinct_persons)
 
-    distinct_persons.sort(key=operator.itemgetter(0))
+    # distinct_persons.sort(key=operator.itemgetter(0))
 
 
 def correct_overlaps(person_year_table, profession):
@@ -123,7 +123,7 @@ def correct_overlaps(person_year_table, profession):
     """
 
     # sort the data by surname and given name
-    person_year_table.sort(key=operator.itemgetter(1, 2, 4))  # surname = row[1], given name = row[2], year = row[4]
+    person_year_table.sort(key=operator.itemgetter(1, 2, 5))  # surname = row[1], given name = row[2], year = row[5]
 
     # group data by surname and given name
     person_sequences = [group for k, [*group] in itertools.groupby(person_year_table, key=operator.itemgetter(1, 2))]
@@ -143,7 +143,7 @@ def correct_overlaps(person_year_table, profession):
     for ps in person_sequences:
 
         # initialise a dict of years and the workplace(s) associated with each year
-        years_and_workplaces = {row[4]: [] for row in ps}  # row[4] =  year
+        years_and_workplaces = {row[5]: [] for row in ps}  # row[5] =  year
 
         # initialise a set that marks which year-workplace combinations should be removed to eliminate the overlap
         to_remove = set()
@@ -152,12 +152,14 @@ def correct_overlaps(person_year_table, profession):
         if len(years_and_workplaces) < len(ps):
 
             # associate workplaces with years
-            [years_and_workplaces[row[4]].append(row[3]) for row in ps]  # row[3] = workplaces
+            [years_and_workplaces[row[5]].append(row[4]) for row in ps]  # row[4] = workplaces
 
             # CASE (F)
             # if one year features 3+ workplaces, set that person-sequence aside for manual inspection
             if max([len(v) for v in years_and_workplaces.values()]) > 2:
-                odd_person_sequences.append(ps)
+                [odd_person_sequences.append(py) for py in ps]
+                odd_person_sequences.append(['\n'])
+                continue
 
             else:  # no year features more than two institutions
 
@@ -165,6 +167,7 @@ def correct_overlaps(person_year_table, profession):
                 # if the overlap is of 3+ years, split up the person-year
                 if len(ps) - len(years_and_workplaces) > 2:
                     distinct_persons.extend(split_sequences(ps, change_log))
+                    continue
 
                 else:  # the overlap is of one or two years
 
@@ -179,7 +182,7 @@ def correct_overlaps(person_year_table, profession):
                         # CASES (A) AND (B)
                         # if the overlap marks a transition
                         transition = if_transition(years_and_workplaces, overlap_years)
-                        if transition:
+                        if transition['transition']:
                             # mark for removal the rows which match the receiving/destination workplace
                             # keeping the sending workplace is arbitrary, it only matters that the
                             # choice be applied consistently
@@ -190,8 +193,10 @@ def correct_overlaps(person_year_table, profession):
                         # no transition, a blip in an otherwise continuous workplace sequence
                         # throw out the blip
                         else:
-                            [to_remove.add(str(yr) + '-' + str(wrk_plc)) for yr, wrk_plc in overlap_years
-                             if wrk_plc != transition['workplace_before']]
+                            for yr, wrk_plc in overlap_years.items():
+                                for wp in wrk_plc:
+                                    if wp != transition['workplace_before']:
+                                        to_remove.add(str(yr) + '-' + wp)
 
                     else:  # the overlap is at one or both boundaries
 
@@ -201,44 +206,54 @@ def correct_overlaps(person_year_table, profession):
                                 and max(overlap_years) == max(years_and_workplaces):
                             # mark for removal the workplace in the first row
                             # this choice is arbitrary, it only matters that it be applied consistently
-                            first_workplace = ps[0][3]
-                            to_remove.add([str(yr) + '-' + first_workplace for yr in overlap_years])
+                            first_workplace = ps[0][4]
+                            [to_remove.add(str(yr) + '-' + first_workplace) for yr in overlap_years]
 
                         # CASES (C) OR (H)
                         # if the overlap is only on the lower boundary,
                         elif min(overlap_years) == min(years_and_workplaces) \
                                 and max(overlap_years) < max(years_and_workplaces):
 
-                            # throw out the workplace that we transition FROM; this eliminates one mobility event
+                            # keep only the workplace we transition TO, so throw out the sending workplaces
+                            # this eliminates one mobility event
 
-                            # get the sending year-workplace
-                            sorted_years = sorted(list(overlap_years))
-                            first_overlap_year = sorted_years[0]
-                            first_overlap_year_idx = sorted_years.index(first_overlap_year)
-                            year_before = sorted_years[first_overlap_year_idx - 1]
-                            sending_workplace = years_and_workplaces[year_before]
+                            # get the destination year-workplace
+                            sorted_overlap_years = sorted(list(overlap_years))
+                            sorted_total_years = sorted(list(years_and_workplaces))
+
+                            last_overlap_year = sorted_overlap_years[-1]
+                            last_overlap_year_idx = sorted_total_years.index(last_overlap_year)
+                            first_year_after = sorted_total_years[last_overlap_year_idx + 1]
+                            destination_workplace = years_and_workplaces[first_year_after][0]
 
                             # and mark for removal the years with the sending workplace
-                            [to_remove.add(str(yr) + '-' + str(wrk_plc)) for yr, wrk_plc in overlap_years
-                             if wrk_plc == sending_workplace]
+                            for yr, wrk_plc in overlap_years.items():
+                                for wp in wrk_plc:
+                                    if wp != destination_workplace:
+                                        to_remove.add(str(yr) + '-' + wp)
 
                         # CASES (D) OR (H)
                         # if the overlap is only on the upper boundary
                         elif max(overlap_years) == max(years_and_workplaces) \
                                 and min(overlap_years) > min(years_and_workplaces):
 
-                            # throw out the workplace we transition TO; this eliminates one mobility event
+                            # keep only the workplace we transition FROM, so throw out the destination workplaces
+                            # this eliminates one mobility event
 
-                            # get the destination year-workplace
-                            sorted_years = sorted(list(overlap_years))
-                            last_overlap_year = sorted_years[-1]
-                            last_overlap_year_idx = sorted_years.index(last_overlap_year)
-                            first_year_after = sorted_years[last_overlap_year_idx + 1]
-                            destination_workplace = years_and_workplaces[first_year_after]
+                            # get the sending year-workplace
+                            sorted_overlap_years = sorted(list(overlap_years))
+                            sorted_total_years = sorted(list(years_and_workplaces))
+
+                            first_overlap_year = sorted_overlap_years[0]
+                            first_overlap_year_idx = sorted_total_years.index(first_overlap_year)
+                            year_before = sorted_total_years[first_overlap_year_idx - 1]
+                            sending_workplace = years_and_workplaces[year_before][0]
 
                             # and mark for removal the years with the destination workplace
-                            [to_remove.add(str(yr) + '-' + str(wrk_plc)) for yr, wrk_plc in overlap_years
-                             if wrk_plc == destination_workplace]
+                            for yr, wrk_plc in overlap_years.items():
+                                for wp in wrk_plc:
+                                    if wp != sending_workplace:
+                                        to_remove.add(str(yr) + '-' + wp)
 
                         else:
                             # the person-sequence has slipped through the filters, save for visual inspection
@@ -249,7 +264,7 @@ def correct_overlaps(person_year_table, profession):
             # the new person-sequence, without overlaps
             new_ps = []
             for pers_yr in ps:
-                if str(pers_yr[4]) + '-' + pers_yr[3] not in to_remove:  # the year-workplace combination
+                if str(pers_yr[5]) + '-' + pers_yr[4] not in to_remove:  # the year-workplace combination
                     new_ps.append(pers_yr)
 
             # and add the new person-sequence to the list of distinct persons
@@ -262,7 +277,7 @@ def correct_overlaps(person_year_table, profession):
             # we want a double-column csv file:
             # old person-sequence in first column, no-overlap sequence in second column
             for idx, pers_yr in enumerate(ps):
-                if idx < len(new_ps) - 1:
+                if idx < len(new_ps):
                     change_log.append(pers_yr[1:3] + pers_yr[4:6] + ['', ''] + new_ps[idx][1:3] + new_ps[idx][4:6])
                 else:
                     change_log.append(pers_yr[1:3] + pers_yr[4:6])
@@ -272,18 +287,18 @@ def correct_overlaps(person_year_table, profession):
             distinct_persons.append(ps)
 
     # write to disk the tables of odd sequences and the change logs
-    output_root_path = 'prep/pids/' + profession + '/' + profession
+    output_root_path = profession + '/' + profession  # 'prep/pids/' +
 
     odd_seqs = pd.DataFrame(odd_person_sequences)
-    odd_seqs.to_csv(output_root_path + '_odd_person_sequences.csv')
+    odd_seqs_path = output_root_path + '_odd_person_sequences.csv'
+    odd_seqs.to_csv(odd_seqs_path)
 
     change_log = pd.DataFrame(change_log)
-    change_log.to_csv(output_root_path + '_change_log.csv')
+    change_log_path = output_root_path + '_change_log.csv'
+    change_log.to_csv(change_log_path)
 
     # and return the list of distinct persons
     return distinct_persons
-
-    # TODO need to write a test file for this...actually, already have one from before, somewhere...
 
 
 def if_transition(years_and_workplaces, overlap_years):
@@ -304,7 +319,7 @@ def if_transition(years_and_workplaces, overlap_years):
 
     # if there's only one year of overlap
     if len(overlap_years) == 1:
-        ovrlp_yr_idx = years.index(list(overlap_years[0]))
+        ovrlp_yr_idx = years.index(list(overlap_years)[0])
         year_before, year_after = years[ovrlp_yr_idx - 1], years[ovrlp_yr_idx + 1]
 
     # if there are two years of overlap
@@ -315,13 +330,13 @@ def if_transition(years_and_workplaces, overlap_years):
         year_before, year_after = years[lower_ovrlp_yr_idx - 1], years[upper_ovrlp_yr_idx + 1]
 
     # if the workplaces in the years before and after the overlap are different, we have a transition
-    if years_and_workplaces[year_before] != years_and_workplaces[year_after]:
+    if years_and_workplaces[year_before][0] != years_and_workplaces[year_after][0]:
         # return a dict with keys: year before, year after, workplace before, workplace after
-        return {'year_before': str(year_before), 'year_after': str(year_after),
-                'workplace_before': years_and_workplaces[year_before],
-                'workplace_after': years_and_workplaces[year_after]}
+        return {'transition': True,
+                'workplace_before': years_and_workplaces[year_before][0],
+                'workplace_after': years_and_workplaces[year_after][0]}
     else:  # if the before and after workplaces are the same, there's no transition
-        return None
+        return {'transition': False, 'workplace_before': years_and_workplaces[year_before][0]}
 
 
 def split_sequences(person_sequence, change_log):
@@ -366,6 +381,9 @@ def split_sequences(person_sequence, change_log):
     :return: a list of person-sequences; in the example above, a list with [B, C]
     """
 
+    # sort by appellate court area, tribunal court area, then court name
+    person_sequence.sort(key=operator.itemgetter(6, 7, 8))
+
     # group by appellate area
     # value at index 6 holds appellate court area code
     p_seqs = [group for k, [*group] in itertools.groupby(person_sequence, key=operator.itemgetter(6))]
@@ -392,11 +410,18 @@ def split_sequences(person_sequence, change_log):
 
         # side-by-side for input sequence and first output sequence
         for idx, pers_yr in enumerate(p_seqs[0]):
-            change_log.append(person_sequence[idx] + ['', ''] + pers_yr)
+            comparison_row = person_sequence[idx][1:3] + person_sequence[idx][4:6] + ['', ''] + \
+                             pers_yr[1:3] + pers_yr[4:6]
+            change_log.append(comparison_row)
+
+        change_log.append(6 * [''] + ['NEXT PERSON'])
 
         # side-by-side for input sequence and second output sequence
         for idx, pers_yr in enumerate(p_seqs[1]):
-            change_log.append(person_sequence[len(p_seqs[0]) - 1 + idx] + ['', ''] + pers_yr)
+            comparison_row = person_sequence[len(p_seqs[0]) + idx][1:3] + \
+                             person_sequence[len(p_seqs[0]) + idx][4:6] + ['', ''] + \
+                             pers_yr[1:3] + pers_yr[4:6]
+            change_log.append(comparison_row)
         change_log.append('\n')
 
         return p_seqs
@@ -404,9 +429,20 @@ def split_sequences(person_sequence, change_log):
 
 def interpolate_person_years(distinct_persons):
     """
-    Sometimes otherwise continuous sequences are missing a year or two in the middle. It is unreasonable that
-    someone actually retired from a judicial profession for such a short period, so we assume that an absence of two
-    years or less reflects a book-keeping error, and interpolate the missing person-years.
+    Sometimes sequences are missing a year or two in the middle. It is unreasonable that someone retired from a
+    judicial profession for 1-2 years only to return afterwards, so we assume that an absence of two years or less
+    reflects a book-keeping error or a leave of absence, and interpolate the missing person-years. The vignettes below
+
+    (A)  ONE YEAR GAP                                        (B)  TWO YEAR GAP
+
+    SURNAME    GIVEN NAME   INSTITUTION   YEAR               SURNAME    GIVEN NAME  INSTITUTION    YEAR
+
+    DERP       BOB JOE      ALPHA         2012               DERP       BOB JOE     ALPHA          2012
+    DERP       BOB JOE      ALPHA         2013               DERP       BOB JOE     ALPHA          2013
+    DERP       BOB JOE      BETA          2015               DERP       BOB JOE     BETA           2016
+    DERP       BOB JOE      BETA          2016               DERP       BOB JOE     ALPHA          2017
+    DERP       BOB JOE      BETA          2017               DERP       BOB JOE     BETA           2018
+
     :param distinct_persons: a list of distinct persons, i.e. of person-sequences that feature no overlaps; this is
                              a triple nested list: of person-sequences, which is made up of person-years, each of
                              which is a list of person-year data
@@ -526,6 +562,6 @@ def cluster(profession):
 
 
 if __name__ == '__main__':
-    pers_yr_table = pd.read_csv('test_person_years_table.csv')
+    pers_yr_table = pd.read_csv('test/test_person_years_table.csv')
     pers_yr_table = pers_yr_table.values.tolist()
     pids(pers_yr_table, 'test')
