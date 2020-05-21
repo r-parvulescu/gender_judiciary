@@ -6,10 +6,6 @@ import operator
 import itertools
 import pandas as pd
 import copy
-import os
-import csv
-import dedupe
-from unidecode import unidecode
 
 
 def pids(person_year_table, profession):
@@ -40,7 +36,7 @@ def pids(person_year_table, profession):
     person_year_table_with_pids = unique_person_ids(distinct_persons, change_log)
 
     # write to disk the change log
-    output_root_path = 'prep/pids/' + profession + '/' + profession  #
+    output_root_path = 'prep/pids/' + profession + '/' + profession
     change_log = pd.DataFrame(change_log)
     change_log_path = output_root_path + '_change_log.csv'
     change_log.to_csv(change_log_path)
@@ -189,7 +185,9 @@ def correct_overlaps(person_year_table, profession, change_log):
                 # CASE (G)
                 # if the overlap is of 3+ years, split up the person-year
                 if len(ps) - len(years_and_workplaces) > 2:
-                    distinct_persons.extend(split_sequences(ps, change_log))
+                    sequences_split = split_sequences(ps, change_log, odd_person_sequences)
+                    if sequences_split:
+                        distinct_persons.extend(sequences_split)
                     continue
 
                 else:  # the overlap is of one or two years
@@ -375,7 +373,7 @@ def if_transition(years_and_workplaces, overlap_years):
         return {'transition': False, 'workplace_before': years_and_workplaces[year_before][0]}
 
 
-def split_sequences(person_sequence, change_log):
+def split_sequences(person_sequence, change_log, odd_person_sequences):
     """
 
     NB: BUILT ONLY FOR SEQUENCES THAT FEATURE ONLY ONE NAME IN 2 PLACES, WILL NOT WORK FOR ONE NAME IN 3+ PLACES
@@ -411,9 +409,9 @@ def split_sequences(person_sequence, change_log):
     DERP       BOB JOE     ALPHA          2013  1           DERP        BOB JOE     BETA           2013  2
     DERP       BOB JOE     ALPHA          2014  1           DERP        BOB JOE     BETA           2014  2
 
-
     :param person_sequence: a year-ordered sequence of person-years sharing a full name; as a list of lists
     :param change_log: a list (to be written as a csv) marking the before and after states of the person-sequence
+    :param odd_person_sequences: a list of persons with odd characteristics, which we save for visual inspection
     :return: a list of person-sequences; in the example above, a list with [B, C]
     """
 
@@ -434,9 +432,12 @@ def split_sequences(person_sequence, change_log):
     if len(p_seqs) != 2:
         p_seqs = [group for k, [*group] in itertools.groupby(person_sequence, key=operator.itemgetter(8))]
 
-    # if you still don't get two groups, error out, something's wrong
+    # if you still don't get two groups do nothing, and save the person-sequence for visual inspection
     if len(p_seqs) != 2:
-        raise ValueError("CAN'T SPLIT SEQUENCE INTO GROUPS, SOMETHING WRONG WITH INPUT SEQUENCE")
+        odd_person_sequences.append(['\n'])
+        odd_person_sequences.extend([py[1:3] + py[4:9] for py in sorted(person_sequence, key=operator.itemgetter(5))])
+        odd_person_sequences.append(['\n'])
+        return None
 
     # otherwise, update the change log and return the groups
     else:
@@ -540,14 +541,14 @@ def interpolate_person_years(distinct_persons, change_log):
                     #  whether or not the gap marks a change in workplace, insert a person-year with the missing
                     # year and the workplace value of the last year before the gap; workplace before the gap
                     # (and not the first workplace after) is arbitrary: it only matters that we do so consistently
-                    intrplt_pers_seq.insert(0, pers_seq[i][:5] + [int(pers_seq[i][5]) + 1] + pers_seq[i][5:])
+                    intrplt_pers_seq.insert(0, pers_seq[i][:5] + [str(int(pers_seq[i][5]) + 1)] + pers_seq[i][5:])
 
                 # CASES (B) and (D)
                 # we're missing two years, i.e. the year difference between two consecutive person-years is 3
                 if year_diff == 3:
                     # same as above; insert two person-years with the missing years and the departure workplace
-                    intrplt_pers_seq.insert(0, pers_seq[i][:5] + [int(pers_seq[i][5]) + 1] + pers_seq[i][5:])
-                    intrplt_pers_seq.insert(0, pers_seq[i][:5] + [int(pers_seq[i][5]) + 2] + pers_seq[i][5:])
+                    intrplt_pers_seq.insert(0, pers_seq[i][:5] + [str(int(pers_seq[i][5]) + 1)] + pers_seq[i][5:])
+                    intrplt_pers_seq.insert(0, pers_seq[i][:5] + [str(int(pers_seq[i][5]) + 2)] + pers_seq[i][5:])
 
             # sort the new person-sequence by year
             intrplt_pers_seq.sort(key=operator.itemgetter(5))
@@ -612,128 +613,3 @@ def unique_person_ids(distinct_persons, change_log):
 
     # and return the table with person-level unique IDs
     return sorted(person_year_table_with_pids, key=operator.itemgetter(2, 3, 6))
-
-
-def cluster(profession):
-    """
-    Use the dedupe package to assign rows in a person-year table to a cluster: that cluster than gets a unique ID.
-    NB: this code adapted from the example code at https://dedupeio.github.io/dedupe-examples/docs/csv_example.html
-
-    :param profession: string, "judges", "prosecutors", "notaries" or "executori".
-    :return:
-    """
-
-    input_file = 'prep/standardise/' + profession + '/' + profession + '_preprocessed.csv'
-    output_file = 'prep/pids/' + profession + '/' + profession + '_pids.csv'
-    # settings_file is a binary file, contains weights and predicates
-    settings_file = 'prep/pids/' + profession + '/' + profession + '_learned_settings'
-    training_file = 'prep/pids/' + profession + '/' + profession + '_training.json'
-
-    # load the csv as a dict of dicts, each sub-dict is a person-year
-    py_dict = {}
-    with open(input_file) as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            ascii_row = [(k, unidecode(v)) for (k, v) in row.items()]  # dedupe likes everything in ASCII
-            row_id = int(row['cod rând'])
-            py_dict[row_id] = dict(ascii_row)
-
-    # if the setting file exists from previous runs, use that and skip training and learning
-    if os.path.exists(settings_file):
-        print('reading from', settings_file)
-        with open(settings_file, 'rb') as f:
-            deduper = dedupe.StaticDedupe(f)
-
-    else:
-
-        # field you want the deduper to take into consideration
-        fields = [
-            {'field': 'nume', 'type': 'String'},
-            {'field': 'prenume', 'type': 'String'},
-            {'field': 'sex', 'type': 'String'},
-            {'field': 'instituţie', 'type': 'String'},
-            {'field': 'an', 'type': 'String'},
-            {'field': 'sex', 'type': 'String'},
-        ]
-
-        deduper = dedupe.Dedupe(fields)
-
-        # if a training file from previous already exists, use that and skip training
-        if os.path.exists(training_file):
-            print('reading labeled examples from ', training_file)
-            with open(training_file, 'rb') as f:
-                deduper.prepare_training(py_dict, f)
-        else:
-            deduper.prepare_training(py_dict)
-
-        print('starting active labeling...')
-
-        dedupe.console_label(deduper)
-
-        deduper.train()
-
-        # save the training data and settings to disk
-        with open(training_file, 'w') as tf:
-            deduper.write_training(tf)
-
-        with open(settings_file, 'wb') as sf:
-            deduper.write_settings(sf)
-
-    print('clustering...')
-    clustered_dupes = deduper.partition(py_dict, 0.5)
-
-    # show how many clusters of (de)duplicate rows the deduper generated
-    print('# duplicate sets', len(clustered_dupes))
-
-    # associate the cluster ids with the person-year entries
-    cluster_membership = {}
-    for cluster_id, (records, scores) in enumerate(clustered_dupes):
-        for record_id, score in zip(records, scores):
-            cluster_membership[record_id] = {
-                "cod personal": cluster_id,
-                "confidence_score": score
-            }
-
-    # update the input file with cluster IDs and the confidence score of that cluster association
-    with open(output_file, 'w') as f_output, open(input_file) as f_input:
-
-        reader = csv.DictReader(f_input)
-        fieldnames = ['cod personal', 'confidence_score'] + reader.fieldnames
-
-        writer = csv.DictWriter(f_output, fieldnames=fieldnames)
-        writer.writeheader()
-
-        for row in reader:
-            row_id = int(row['cod rând'])
-            row.update(cluster_membership[row_id])
-            writer.writerow(row)
-
-# remove the edge years -- too much of this signal is censoring noise, would rather keep something I know
-# is bad than assume/hope/pretend it'll turn out good
-# ps = [py for py in pers_seq if py[4] != censor_years[0] and py[4] != censor_years[1]]  # py[4] = year
-
-
-if __name__ == '__main__':
-    pers_yr_table = pd.read_csv('test/test_person_years_table.csv')
-    pers_yr_table = pers_yr_table.values.tolist()
-    pids(pers_yr_table, 'test')
-
-'''
-if pers_seq[i][4] == pers_seq[i+1][4]:  # person_year[4] == workplace
-    # insert a person_year with the existing workplace and missing year
-    new_person_sequence.insert(i, pers_seq[i][:5] + [int(pers_seq[i][5]) + 1] + pers_seq[i][5:])
-
-# CASE (C), CHANGE IN WORKPLACE
-if pers_seq[i][4] != pers_seq[i+1][4]:  # person_year[4] == workplace
-    # insert a person_year with the DEPARTURE workplace and missing year
-    # using the departure workplace for interpolation is arbitrary, it only matters
-    # that we apply this choice consistently
-    new_person_sequence.insert(i, pers_seq[i][:5] + [int(pers_seq[i][5]) + 1] + pers_seq[i][5:])
-    
-    [print(person) for person in person_sequences]
-    print(len(person_sequences))
-    print('------------------------------------------')
-    [print(person) for person in distinct_persons]
-    print(len(distinct_persons))
-    
-'''
