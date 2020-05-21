@@ -26,25 +26,28 @@ def pids(person_year_table, profession):
     change_log = []
 
     # remove overlaps so no person is in 2+ places in one year
+    print("     NUMBER OF PERSON-YEARS GOING IN: ", len(person_year_table))
+    change_log.append(["NUMBER OF PERSON-YEARS GOING INTO CORRECT_OVERLAPS: ", len(person_year_table)])
     distinct_persons = correct_overlaps(person_year_table, profession, change_log)
 
     # print and save some diagnostics
-    print("NUMBER OF PERSON-YEARS GOING INTO INTERPOLATION: ", len(person_year_table))
-    change_log.append(["NUMBER OF PERSON-YEARS GOING INTO INTERPOLATION: ", len(person_year_table)])
+    print("INTERPOLATE PERSON YEARS")
 
     # interpolate person-years that are missing for spurious reasons
     distinct_persons = interpolate_person_years(distinct_persons, change_log)
 
     # give each person-year a person-year ID
-    # distinct_persons = unique_person_ids(distinct_persons)
-
-    # distinct_persons.sort(key=operator.itemgetter(0))
+    person_year_table_with_pids = unique_person_ids(distinct_persons, change_log)
 
     # write to disk the change log
-    output_root_path = profession + '/' + profession  # 'prep/pids/' +
+    output_root_path = 'prep/pids/' + profession + '/' + profession  #
     change_log = pd.DataFrame(change_log)
     change_log_path = output_root_path + '_change_log.csv'
     change_log.to_csv(change_log_path)
+
+    # and return the person-year table without overlaps, with interpolated values, and with person-level IDs,
+    # sorted by surname, given name, and year
+    return person_year_table_with_pids
 
 
 def correct_overlaps(person_year_table, profession, change_log):
@@ -138,6 +141,7 @@ def correct_overlaps(person_year_table, profession, change_log):
     """
 
     # mark where this function begins in the change log
+    print("CORRECT_OVERLAPS")
     change_log.extend([['\n'], ['CORRECT OVERLAPS'], ['\n']])
 
     # sort the data by surname and given name
@@ -153,6 +157,9 @@ def correct_overlaps(person_year_table, profession, change_log):
     # initialise table of person-sequences that are sufficiently strange and/or rare that we don't trust the function
     # to properly handle; later we'll inspect this table visually
     odd_person_sequences = []
+
+    # initiate a counter to keep track of how many person years are add/removed by this function
+    net_person_years = 0
 
     for ps in person_sequences:
 
@@ -299,26 +306,31 @@ def correct_overlaps(person_year_table, profession, change_log):
                     change_log.append(pers_yr[1:3] + pers_yr[4:6])
             change_log.append(['\n'])
 
+            # and update the counter of net person-years
+            net_person_years += len(new_ps) - len(ps)
+
         else:  # add all the person-year sequences with no overlap years as they are to the list of distinct persons
             distinct_persons.append(ps)
 
     # write to disk the table of odd sequences and the change logs
-    output_root_path = profession + '/' + profession  # 'prep/pids/' +
+    output_root_path = 'prep/pids/' + profession + '/' + profession
 
     odd_seqs = pd.DataFrame(odd_person_sequences)
     odd_seqs_path = output_root_path + '_odd_person_sequences.csv'
     odd_seqs.to_csv(odd_seqs_path)
 
     # print and save some general diagnostics
-    print("NUMBER OF DISTINCT PERSONS GOING IN: ", len(person_sequences))
-    print("NUMBER OF DISTINCT PERSONS COMING OUT: ", len(distinct_persons))
-    print("NUMBER OF DISTINCT PERSONS ADDED BY CORRECT_OVERLAPS: ", len(distinct_persons) - len(person_sequences))
+    print("     NUMBER OF DISTINCT PERSONS GOING IN: ", len(person_sequences))
+    print("     NUMBER OF DISTINCT PERSONS COMING OUT: ", len(distinct_persons))
+    print("     NUMBER OF DISTINCT PERSONS ADDED: ", len(distinct_persons) - len(person_sequences))
+    print("     NET CHANGE IN PERSON-YEARS: ", net_person_years)
 
     change_log.append(['\n'])
-    change_log.append(["NUMBER OF DISTINCT PERSONS GOING IN: ", len(person_sequences)])
-    change_log.append(["NUMBER OF DISTINCT PERSONS COMING OUT: ", len(distinct_persons)])
+    change_log.append(["NUMBER OF DISTINCT PERSONS GOING INTO CORRECT_OVERLAPS: ", len(person_sequences)])
+    change_log.append(["NUMBER OF DISTINCT PERSONS COMING OUT OF CORRECT_OVERLAPS: ", len(distinct_persons)])
     change_log.append(["NUMBER OF DISTINCT PERSONS ADDED BY CORRECT_OVERLAPS: ",
                        len(distinct_persons) - len(person_sequences)])
+    change_log.append(["NET CHANGE IN PERSON-YEARS AFTER CORRECT_OVERLAPS", net_person_years])
     change_log.append(['\n'])
 
     # and return the list of distinct persons
@@ -492,7 +504,7 @@ def interpolate_person_years(distinct_persons, change_log):
     """
 
     # mark where this function begins in the change log
-    change_log.extend([['\n'], ['INTERPOLATE PERSON YEARS'], ['\n']])
+    change_log.extend([['\n'], ['INTERPOLATE_PERSON_YEARS'], ['\n']])
 
     # initialise a list of distinct persons with interpolated person-years
     interpolated_distinct_persons = []
@@ -564,25 +576,42 @@ def interpolate_person_years(distinct_persons, change_log):
 
     #  print and save some diagnostics
 
-    print("NUMBER OF PERSON-YEARS ADDED: ", interpolation_counter)
+    print("     NET CHANGE IN PERSON-YEARS: ", interpolation_counter)
 
     change_log.append(['\n'])
-    change_log.append(["NUMBER OF PERSON-YEARS ADDED: ", interpolation_counter])
+    change_log.append(["NUMBER OF PERSON-YEARS ADDED BY INTERPOLATE_PERSON_YEARS: ", interpolation_counter])
     change_log.append(['\n'])
 
     # and return the list of person, completed with the interpolated person-years
     return interpolated_distinct_persons
 
 
-def unique_person_ids(distinct_persons):
+def unique_person_ids(distinct_persons, change_log):
     """
     Assign each person-year a new field with the person-ID to which the person-year belongs.
+
     :param distinct_persons: a list of distinct persons, i.e. of person-sequences that feature no overlaps; this is
                              a triple nested list: of person-sequences, which is made up of person-years, each of
                              which is a list of person-year data
+    :param change_log: a list (to be written as a csv) marking the before and after states of the person-sequence
     :return: a list of distinct persons, where each person-year has the person-level ID
     """
-    pass
+
+    # initialise the list of person-years with unique person IDs
+    person_year_table_with_pids = []
+
+    # add a person-level ID to each person-year
+    for idx, person in enumerate(distinct_persons):
+        for person_year in person:
+            # dump all person-years in one table
+            person_year_table_with_pids.append(person_year[:1] + [idx] + person_year[1:])
+
+    # update the change log with the total number of person-years coming out
+    print("NUMBER OF PERSON-YEARS AT THE END: ", len(person_year_table_with_pids))
+    change_log.append(["NUMBER OF PERSON-YEARS AFTER ASSIGNING UNIQUE IDS: ", len(person_year_table_with_pids)])
+
+    # and return the table with person-level unique IDs
+    return sorted(person_year_table_with_pids, key=operator.itemgetter(2, 3, 6))
 
 
 def cluster(profession):
