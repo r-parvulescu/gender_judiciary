@@ -3,9 +3,8 @@ Functions for extracting data from the prosecutor employment roll .doc files.
 """
 
 import re
-from string import punctuation
-from cleaning_tools import no_space_name_replacer, space_name_replacer
-from transdicts import given_name_mistakes, given_name_diacritics, parquet_names, prosec_surname_replacers
+import string
+from collector.converter import cleaners
 
 
 def update_prosec_people_periods(people_periods, unit_lines, split_mark, year, month):
@@ -14,7 +13,7 @@ def update_prosec_people_periods(people_periods, unit_lines, split_mark, year, m
     name_lines = get_parquet_name_lines(unit_lines)
     for nl in name_lines:
         name = nl[0]
-        if name.upper().find('CRT') == -1:  # ignore dud lines
+        if name.upper().find('CRT') == -1:  # ignores this common dud line
             full_name = get_prosecutor_names(name)
             if full_name is not None:
                 people_periods.append([full_name[0], full_name[1], unit_name, year, month])
@@ -46,9 +45,9 @@ def get_prosecutor_names(text):
         # general clean-up
         given_names = text[text.find(' ') + 1:].replace('-', ' ').replace('NR', '')
 
-        given_names = space_name_replacer(given_names, given_name_mistakes)
-        given_names = no_space_name_replacer(given_names, given_name_diacritics)
-        surnames = no_space_name_replacer(surnames, prosec_surname_replacers)
+        given_names = cleaners.space_name_replacer(given_names, cleaners.given_name_mistakes)
+        given_names = cleaners.no_space_name_replacer(given_names, cleaners.given_name_diacritics)
+        surnames = cleaners.no_space_name_replacer(surnames, cleaners.prosec_surname_replacers)
         surnames, given_names = problem_name_handler(surnames, given_names)
         if len(surnames) > 2:
             # get rid of multiple spaces
@@ -98,11 +97,11 @@ def get_parquet_name(lines, split_mark):
             parquet_name = "PARCHETUL DE PE LÂNGĂ TRIBUNALUL PENTRU MINORI ŞI FAMILIE BRAŞOV"
         else:
             parquet_name = (split_mark + lines[0]).replace('|', '').strip()
-            parquet_name = parquet_name.replace('-', ' ').translate(str.maketrans('', '', punctuation))
+            parquet_name = parquet_name.replace('-', ' ').translate(str.maketrans('', '', string.punctuation))
     parquet_name = parquet_name.replace('  ', ' ')
     if multiline_parquet_name(parquet_name):
         parquet_name = parquet_name + ' ' + lines[1].replace('|', '').strip()
-    parquet_name = space_name_replacer(parquet_name, parquet_names)
+    parquet_name = cleaners.space_name_replacer(parquet_name, cleaners.parquet_names)
     parquet_name = ' '.join(parquet_name.split()).strip()
     if parquet_name == "PARCHETUL DE PE LÂNGĂ JUDECĂTORIA ALBA":
         parquet_name = "PARCHETUL DE PE LÂNGĂ JUDECĂTORIA ALBA IULIA"
@@ -110,7 +109,7 @@ def get_parquet_name(lines, split_mark):
 
 
 def normal_text(text):
-    """returns True if common red flags are absent"""
+    """returns True if red flags of misprocessed name are absent; if False, we can ignore the line containing them"""
     if (len(text) > 3) and ("LA DATA DE" not in text) and ("ÎNCEPÂND CU" not in text) \
             and ("CRIMINALITATE" not in text) and ("TÂRGU" not in text) and ("NUME" not in text) \
             and ("ORGANIZATĂ" not in text) and ("STABILITATE" not in text) and ("EXTERNE" not in text) \
@@ -123,7 +122,7 @@ def normal_text(text):
 
 
 def multiline_parquet_name(parquet_name):
-    """return True for common red flags that a parquet name goes across two lines"""
+    """return True if red flags of multiline parquet name are present; if True, we can contract name across lines"""
     if (parquet_name == "PARCHETUL DE") or \
             (parquet_name == "PARCHETUL DE PE") \
             or (parquet_name == "PARCHETUL DE PE LÂNGĂ") \
@@ -138,7 +137,7 @@ def multiline_parquet_name(parquet_name):
 
 
 def problem_name_handler(surnames, given_names):
-    """there are some given names that mess things up; this returns usable names"""
+    """some names are frequently input wrong in the base data file; this function handles them ad-hoc"""
     if given_names == "FLORESCU":
         given_names = surnames
         surnames = "FLORESCU"

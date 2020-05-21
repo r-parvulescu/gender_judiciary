@@ -3,8 +3,7 @@ Functions for extracting data from the judge employment roll .doc files.
 """
 
 import re
-from cleaning_tools import no_space_name_replacer, space_name_replacer
-from transdicts import court_names, given_name_mistakes, given_name_diacritics, judges_surname_replacers
+from collector.converter import cleaners
 
 
 def update_judge_people_periods(people_periods, unit_lines, text, year, month):
@@ -27,9 +26,9 @@ def get_judges_names(list_of_lines, text):
         else:  # two-column file
             two_col_name_getter(list_of_lines, names)
         for name in names:
-            name[0] = no_space_name_replacer(name[0], judges_surname_replacers)
-            name[1] = space_name_replacer(name[1], given_name_mistakes)
-            name[1] = no_space_name_replacer(name[1], given_name_diacritics)
+            name[0] = cleaners.no_space_name_replacer(name[0], cleaners.judges_surname_replacers)
+            name[1] = cleaners.space_name_replacer(name[1], cleaners.given_name_mistakes)
+            name[1] = cleaners.no_space_name_replacer(name[1], cleaners.given_name_diacritics)
             name[0], name[1] = problem_name_handler(name[0], name[1])
         return names
 
@@ -41,10 +40,31 @@ def two_col_name_getter(list_of_lines, names):
             name_line = val.split('|')
             name_line = [l for l in name_line if bool(re.match('^(?=.*[a-zA-Z])', l))]
             if len(name_line) < 2:  # name spilled over onto next line, put it to last name and skip
-                if name_line[0] == 'CRT':
+                if name_line[0] == 'CRT' or len(name_line[0]) < 2:
                     continue
-                if len(name_line[0]) < 2:
-                    continue
+                '''
+                print(name_line)
+                print(list_of_lines[idx+1])
+                print(list_of_lines[idx+2])
+                print(list_of_lines[idx+3])
+                print(list_of_lines[idx+4])
+                print(list_of_lines[idx+5])
+                print(list_of_lines[idx+6])
+                print(list_of_lines[idx+7])
+                print(list_of_lines[idx+8])
+                print(list_of_lines[idx+9])
+                print(list_of_lines[idx+10])
+                print(list_of_lines[idx+11])
+                print(list_of_lines[idx+12])
+                print(list_of_lines[idx+13])
+                print(list_of_lines[idx+14])
+                print(list_of_lines[idx+15])
+                print(list_of_lines[idx+16])
+                print(list_of_lines[idx+17])
+                print(list_of_lines[idx+18])
+                print(list_of_lines)
+                '''
+
                 names[idx - 1][1] = names[idx - 1][1] + ' ' + name_line[0]
                 continue
             name_line = [' '.join(n.split()).strip() for n in name_line]
@@ -63,7 +83,7 @@ def three_col_name_getter(list_of_lines, names):
 
 
 def find_name_start(list_of_lines):
-    """return the index of the list of lines at which the first name starts"""
+    """return the index at which the names begin"""
     if bool(re.match('^(?=.*[a-zA-Z])', ''.join(list_of_lines))):  # ignore empties
         try:  # names proper usually  start after "CRT"
             names_start_idx = (next((idx for idx, val in enumerate(list_of_lines) if "CRT" in val))) + 1
@@ -88,10 +108,11 @@ def get_court_name(lines):
     if "RAZA" in court_name:
         line = [lines[0].replace('|', '').strip() + lines[1].replace('|', '').strip()]
         court_name = get_court_name(line)
+    # deal with the commercial and specialised "courts", which are actually tribunals
     if ("COMERCIAL M" in court_name) or ("SPECIALIZAT M" in court_name):
         court_name = court_name.replace("JUDECĂTORIA", "TRIBUNALUL")
-    court_name = ' '.join(court_name.split()).strip()
-    court_name = space_name_replacer(court_name, court_names)
+    court_name = ' '.join(court_name.split()).strip()  # reduces all multiple spaces
+    court_name = cleaners.space_name_replacer(court_name, cleaners.court_names)
     if court_name == 'JUDECĂTORIA RM VÂLCEA':
         court_name = "JUDECĂTORIA RÂMNICU VÂLCEA"
     return court_name
