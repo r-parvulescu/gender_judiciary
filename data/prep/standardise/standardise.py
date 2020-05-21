@@ -87,13 +87,24 @@ def clean(ppt, change_dict, range_years, year, profession):
 
     # keep running the cleaners until we are no longer standardising names
     if postclean_num_fullnames == preclean_num_fullnames:
+
+        # name standardisation takes 5-15 mins, write standardised table to disk in case something breaks after
+        outfile = 'prep/standardise/' + profession + '/' + profession + '_standardised.csv'
+        with open(outfile, 'w') as out_file:
+            writer = csv.writer(out_file)
+            new_headers = ["cod rând", "nume", "prenume", "sex", "instituţie", "an", "ca cod", "trib cod", "jud cod",
+                           "nivel"]
+            writer.writerow(new_headers)
+            [writer.writerow(row) for row in ppt]
+
+        # and return the table, sorted by surname, given name, year (and month, if available)
         return sorted(ppt, key=itemgetter(0, 1, 3)) if year else sorted(ppt, key=itemgetter(0, 1, 3, 4))
     else:
         print('-------------NAME CLEANER RECURSED-------------')
         return clean(ppt, change_dict, range_years, year=year, profession=profession)  # recurse
 
 
-def make_log_file(change_dict, out_path):
+def make_log_file(change_dict, profession):
     """
     Makes a log file (as csv) of before and after states, so we can see what our functions changed.
     :param change_dict: a three level dict binning before-after states by the function that did the
@@ -102,9 +113,11 @@ def make_log_file(change_dict, out_path):
                   'time_of_run_1' : {'func1' : {'before1' : 'after1', 'before2' : 'after2'},
                   'time_of_run_2' : {'func2' : {'before1' : 'after1', 'before2' : 'after2'}
                    }
-    :param out_path: where the log file will live
+    :param profession:  string, "judges", "prosecutors", "notaries" or "executori".
     :return: None
     """
+
+    out_path = 'prep/standardise/' + profession + '/' + profession + '_change_log.csv'
 
     with open(out_path, 'w') as out_p:
         writer = csv.writer(out_p)

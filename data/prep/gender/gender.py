@@ -80,19 +80,3 @@ def make_gender_dict(csv_person_period_table):
 def get_gender_dict():
     with open('prep/gender/ro_gender_dict.txt', 'r') as gd:
         return json.load(gd)
-
-
-def print_uniques(csv_file, col_idx):
-    """print all unique column entries, helps weed out typos, misspellings, etc. in names"""
-    with open(csv_file, 'r') as f:
-        reader = csv.reader(f)
-        next(reader, None)  # skip head
-        uniques = set()
-        for row in reader:
-            uniques.add(row[col_idx])
-
-    # sort taking into account Romanian diacritics
-    collator = PyICU.Collator.createInstance(PyICU.Locale('ro_RO.UTF-8'))
-    uniques = [i for i in sorted(list(uniques), key=collator.getSortKey)]
-    for u in sorted(list(uniques)):
-        print(u)
