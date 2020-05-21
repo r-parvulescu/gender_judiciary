@@ -124,8 +124,7 @@ given_name_mistakes = {"AMCA": "ANCA", "AMDREEA": "ANDREEA", "ANGELAA": "ANGELA"
                        "MARIEANA": "MARIANA", "PANTELEMON": "PANTELIMON", "OLIMPIEA": "OLIMPIA",
                        "VERGICICA": 'VERGINICA', "PARASCHIEVA": "PARASCHEVA", "NCOLAE": "NICOLAE", "TITIANA": "TATIANA",
                        "EUJEN": "EUGEN", "VIORIVA": 'VIORICA', "EMANELA": "EMANUELA", "VASIICĂ": "VASILICĂ",
-                       "DUMMITRU": "DUMITRU", "EMANUEAL": "EMANUEL", "VASILII": 'VASILI', "ANTONETA": "ANTOANETA",
-                       "ALEXANDR": "ALEXANDRA", "DIDONIA": "DIDONA", "CRISITINA": "CRISTINA"}
+                       "DUMMITRU": "DUMITRU", "EMANUEAL": "EMANUEL", "VASILII": 'VASILI'}
 
 given_name_diacritics = {"ADELUTA": "ADELUŢA", "ANCUTA": "ANCUŢA", "ANISOARA": "ANIŞOARA", "ANUTA": "ANUŢA",
                          "AURAS": "AURAŞ", "BRANDUSA": "BRÂNDUŞA", "BRANDUŞA": "BRÂNDUŞA", "BRINDUSA": "BRÂNDUŞA",
@@ -154,7 +153,7 @@ given_name_diacritics = {"ADELUTA": "ADELUŢA", "ANCUTA": "ANCUŢA", "ANISOARA":
                          "RAZVAN": "RĂZVAN", "STANCESCU": "STĂNCESCU", "ENIKO": "ENIKŐ", "MANDICA": "MANDICĂ",
                          "ANIŞOARĂ": "ANIŞOARA", "ILEANUŢA": "ILENUŢA", "ALIOSA": "ALIOŞA", "FRASINA": "FRĂSINA",
                          "TANCUŢA": "TĂNCUŢA", "JANOS": "JÁNOS", "TAŢIANA": "TATIANA", "AŞLAN": 'ASLAN',
-                         "SADÎC": 'SADÂC', "MIŢICĂ": "MITICĂ"}
+                         "SADÎC": 'SADÂC'}
 
 prosec_surname_replacers = {"HĂLCIUG": "HĂLGIUG", "AILOAIE": "AILOAE", "ANDREIAS": "ANDREIAŞ",
                             "ANTĂLOAE": "ANTĂLOAIE", "ANUŢA": "ANUŢĂ", "APETROAIEI": "APETROIE", "ARAMA": "ARAMĂ",
@@ -217,7 +216,7 @@ prosec_surname_replacers = {"HĂLCIUG": "HĂLGIUG", "AILOAIE": "AILOAE", "ANDREI
                             "TARAŞ": "TĂRAŞ", "VESTEMEAN": "VEŞTEMEAN", "VESTEMEANU": "VEŞTEMEANU",
                             "VINTILA": "VINTILĂ", "VOINA": 'VOINEA', "VIJIAC": "VÂJIAC", "VADUVAN": "VĂDUVAN",
                             "VĂETIŞI": "VĂETIŞ", "VĂSII": "VĂSÂI", "ZAPODEANU": "ZĂPODEANU", "SELARU": "ŞELARU",
-                            "SENTEŞ": "ŞENTEŞ", "SPAIUC": "ŞPAIUC", "TICOFSCHI": "ŢICOFSCHI", "MURSOI": "MURŞOI"}
+                            "SENTEŞ": "ŞENTEŞ", "SPAIUC": "ŞPAIUC", "TICOFSCHI": "ŢICOFSCHI"}
 
 judges_surname_replacers = {"ACIOBANITEI": "ACIOBĂNIŢEI", "AFRASINIE": "AFRĂSINIE", "AILENA": "AILENE",
                             "AIONITOAIE": "AIONIŢOAIE", "ANCUTA": "ANCUŢA", "ANUTI": "ANUŢI", "ARBANAS": "ARBĂNAŞ",
@@ -337,5 +336,4 @@ judges_surname_replacers = {"ACIOBANITEI": "ACIOBĂNIŢEI", "AFRASINIE": "AFRĂS
                             "ŢUIU": "TUIU", "ŢÂCŞA": "TÂCŞA", "TIPLEA": "ŢIPLEA", "ŢĂPURIN": "ŢAPURIN",
                             "TERMURE": "ŢERMURE", "CRETEANU": "CREŢEANU", "GIURCA": "GIURCĂ", "ILEASĂ": "ILIASĂ",
                             "IVĂNIŞI": "IVĂNIŞ", "LAZĂU": "LĂZĂU", "MIRĂUŢĂ": "MIRUŢĂ", "PATRA": "PATRĂ",
-                            "RACLEA": "RÂCLEA", "ARMĂ": "ARAMĂ", "AVELOIE": "AVELOAIE", "BORDIANU": "BORDEIANU",
-                            "COSMAN": "COŞMAN", "DOGARE": "DOGARU", "POPOESCU": "POPESCU"}
+                            "RACLEA": "RÂCLEA"}
