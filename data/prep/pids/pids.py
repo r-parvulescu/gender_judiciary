@@ -5,6 +5,7 @@ Assign each person-year a unique, person-level ID.
 import operator
 import itertools
 import pandas as pd
+import copy
 import os
 import csv
 import dedupe
@@ -21,19 +22,32 @@ def pids(person_year_table, profession):
     :return: a person-year table without overlaps, with interpolated person-years, and with unique person IDs
     """
 
+    # initiaite a log of changes
+    change_log = []
+
     # remove overlaps so no person is in 2+ places in one year
-    distinct_persons = correct_overlaps(person_year_table, profession)
+    distinct_persons = correct_overlaps(person_year_table, profession, change_log)
+
+    # print and save some diagnostics
+    print("NUMBER OF PERSON-YEARS GOING INTO INTERPOLATION: ", len(person_year_table))
+    change_log.append(["NUMBER OF PERSON-YEARS GOING INTO INTERPOLATION: ", len(person_year_table)])
 
     # interpolate person-years that are missing for spurious reasons
-    distinct_persons = interpolate_person_years(distinct_persons)
+    distinct_persons = interpolate_person_years(distinct_persons, change_log)
 
     # give each person-year a person-year ID
-    distinct_persons = unique_person_ids(distinct_persons)
+    # distinct_persons = unique_person_ids(distinct_persons)
 
     # distinct_persons.sort(key=operator.itemgetter(0))
 
+    # write to disk the change log
+    output_root_path = profession + '/' + profession  # 'prep/pids/' +
+    change_log = pd.DataFrame(change_log)
+    change_log_path = output_root_path + '_change_log.csv'
+    change_log.to_csv(change_log_path)
 
-def correct_overlaps(person_year_table, profession):
+
+def correct_overlaps(person_year_table, profession, change_log):
     """
     NB: !! this code only applies to person-year tables !! DO NOT APPLY TO PERSON MONTH TABLES
 
@@ -64,7 +78,7 @@ def correct_overlaps(person_year_table, profession):
        above (since we may not have observed the start or end state) or situation (3) above (since the delegation might
        fall at the edge of our observation period)
 
-    All these cases are covered by the vignettes below -- I reference to these in code comments
+    All these cases are covered by the vignettes below -- I reference to these in code comments.
 
     (A)  ONE YEAR OVERLAP, MID SEQUENCE                      (B)  TWO YEAR OVERLAP, MID SEQUENCE
 
@@ -118,9 +132,13 @@ def correct_overlaps(person_year_table, profession):
 
     :param person_year_table: a table of person-years, as a list of lists
     :param profession: string, "judges", "prosecutors", "notaries" or "executori"
+    :param change_log: a list (to be written as a csv) marking the before and after states of the person-sequence
     :return: a list of distinct persons, i.e. of person-sequences that feature no overlaps; this is a triple nested
              list: of person-sequences, which is made up of person-years, each of which is a list of person-year data
     """
+
+    # mark where this function begins in the change log
+    change_log.extend([['\n'], ['CORRECT OVERLAPS'], ['\n']])
 
     # sort the data by surname and given name
     person_year_table.sort(key=operator.itemgetter(1, 2, 5))  # surname = row[1], given name = row[2], year = row[5]
@@ -135,10 +153,6 @@ def correct_overlaps(person_year_table, profession):
     # initialise table of person-sequences that are sufficiently strange and/or rare that we don't trust the function
     # to properly handle; later we'll inspect this table visually
     odd_person_sequences = []
-
-    # initialise a log of changes for comparing before an after states of changed person-sequences, to visually inspect
-    # what the function has done
-    change_log = []
 
     for ps in person_sequences:
 
@@ -155,10 +169,12 @@ def correct_overlaps(person_year_table, profession):
             [years_and_workplaces[row[5]].append(row[4]) for row in ps]  # row[4] = workplaces
 
             # CASE (F)
-            # if one year features 3+ workplaces, set that person-sequence aside for manual inspection
+            # if one year features 3+ workplaces, mark that person-sequence aside for manual inspection
+            # but otherwise don't touch it
             if max([len(v) for v in years_and_workplaces.values()]) > 2:
                 [odd_person_sequences.append(py) for py in ps]
                 odd_person_sequences.append(['\n'])
+                distinct_persons.append(ps)
                 continue
 
             else:  # no year features more than two institutions
@@ -286,16 +302,24 @@ def correct_overlaps(person_year_table, profession):
         else:  # add all the person-year sequences with no overlap years as they are to the list of distinct persons
             distinct_persons.append(ps)
 
-    # write to disk the tables of odd sequences and the change logs
+    # write to disk the table of odd sequences and the change logs
     output_root_path = profession + '/' + profession  # 'prep/pids/' +
 
     odd_seqs = pd.DataFrame(odd_person_sequences)
     odd_seqs_path = output_root_path + '_odd_person_sequences.csv'
     odd_seqs.to_csv(odd_seqs_path)
 
-    change_log = pd.DataFrame(change_log)
-    change_log_path = output_root_path + '_change_log.csv'
-    change_log.to_csv(change_log_path)
+    # print and save some general diagnostics
+    print("NUMBER OF DISTINCT PERSONS GOING IN: ", len(person_sequences))
+    print("NUMBER OF DISTINCT PERSONS COMING OUT: ", len(distinct_persons))
+    print("NUMBER OF DISTINCT PERSONS ADDED BY CORRECT_OVERLAPS: ", len(distinct_persons) - len(person_sequences))
+
+    change_log.append(['\n'])
+    change_log.append(["NUMBER OF DISTINCT PERSONS GOING IN: ", len(person_sequences)])
+    change_log.append(["NUMBER OF DISTINCT PERSONS COMING OUT: ", len(distinct_persons)])
+    change_log.append(["NUMBER OF DISTINCT PERSONS ADDED BY CORRECT_OVERLAPS: ",
+                       len(distinct_persons) - len(person_sequences)])
+    change_log.append(['\n'])
 
     # and return the list of distinct persons
     return distinct_persons
@@ -427,28 +451,127 @@ def split_sequences(person_sequence, change_log):
         return p_seqs
 
 
-def interpolate_person_years(distinct_persons):
+def interpolate_person_years(distinct_persons, change_log):
     """
     Sometimes sequences are missing a year or two in the middle. It is unreasonable that someone retired from a
     judicial profession for 1-2 years only to return afterwards, so we assume that an absence of two years or less
-    reflects a book-keeping error or a leave of absence, and interpolate the missing person-years. The vignettes below
+    reflects a book-keeping error or a leave of absence, and interpolate the missing person-years.
 
-    (A)  ONE YEAR GAP                                        (B)  TWO YEAR GAP
+    The absence may mark a transition between institutions, i.e. the last workplace before the absence may differ
+    from the first workplace after the absence. This function covers handles that scenario, as well as the case when
+    the absence does not mark institutional change.
+
+    The vignettes below cover all possible cases -- I refer to them in the code.
+
+    (A)  ONE YEAR GAP, NO INSTITUTION CHANGE                 (B)  TWO YEAR GAP, NO INSTITUTION CHANGE
+
+    SURNAME    GIVEN NAME   INSTITUTION   YEAR               SURNAME    GIVEN NAME  INSTITUTION    YEAR
+
+    DERP       BOB JOE      ALPHA         2012               DERP       BOB JOE     ALPHA          2012
+    DERP       BOB JOE      ALPHA         2013               DERP       BOB JOE     ALPHA          2013
+    DERP       BOB JOE      ALPHA         2015               DERP       BOB JOE     ALPHA          2016
+    DERP       BOB JOE      ALPHA         2016               DERP       BOB JOE     ALPHA          2017
+
+
+    (C)  ONE YEAR GAP, CHANGE OF INSTITUTIONS                (D)  TWO YEAR GAP, CHANGE OF INSTITUTIONS
 
     SURNAME    GIVEN NAME   INSTITUTION   YEAR               SURNAME    GIVEN NAME  INSTITUTION    YEAR
 
     DERP       BOB JOE      ALPHA         2012               DERP       BOB JOE     ALPHA          2012
     DERP       BOB JOE      ALPHA         2013               DERP       BOB JOE     ALPHA          2013
     DERP       BOB JOE      BETA          2015               DERP       BOB JOE     BETA           2016
-    DERP       BOB JOE      BETA          2016               DERP       BOB JOE     ALPHA          2017
-    DERP       BOB JOE      BETA          2017               DERP       BOB JOE     BETA           2018
+    DERP       BOB JOE      BETA          2016               DERP       BOB JOE     BETA           2017
+    DERP       BOB JOE      GAMMA         2017               DERP       BOB JOE     GAMMA          2018
+
 
     :param distinct_persons: a list of distinct persons, i.e. of person-sequences that feature no overlaps; this is
                              a triple nested list: of person-sequences, which is made up of person-years, each of
                              which is a list of person-year data
+    :param change_log: a list (to be written as a csv) marking the before and after states of the person-sequence
     :return: a list of distinct persons with interpolated person-years
     """
-    pass
+
+    # mark where this function begins in the change log
+    change_log.extend([['\n'], ['INTERPOLATE PERSON YEARS'], ['\n']])
+
+    # initialise a list of distinct persons with interpolated person-years
+    interpolated_distinct_persons = []
+
+    # initialise a counter to keep track of how many person-years the interpolation adds
+    interpolation_counter = 0
+
+    # iterate through the person-sequences
+    for pers_seq in distinct_persons:
+
+        # sort the person_sequence by year
+        pers_seq.sort(key=operator.itemgetter(5))  # person_year=[5] == year
+
+        # see if this person has one- or two-year gaps between person-years
+        # i.e. if the difference in years between consecutive person-years is 2 or 3
+        year_diffs = {int(pers_seq[idx + 1][5]) - int(py[5]) for idx, py in enumerate(pers_seq)
+                      if idx < len(pers_seq) - 1}
+
+        # if there is indeed a 1-2 year gap
+        if 2 in year_diffs or 3 in year_diffs:
+
+            # deepcopy the person-sequence so we can add interpolated person-years without live-updating iterable
+            intrplt_pers_seq = copy.deepcopy(pers_seq)
+
+            # go through the person-sequence looking for missing years
+            for i in range(len(pers_seq) - 1):
+
+                year_diff = int(pers_seq[i + 1][5]) - int(pers_seq[i][5])  # again, person_year=[5] == year
+
+                # CASES (A) AND (C)
+                # we're missing a year, i.e. the year difference between two consecutive person years is 2
+                if year_diff == 2:
+                    #  whether or not the gap marks a change in workplace, insert a person-year with the missing
+                    # year and the workplace value of the last year before the gap; workplace before the gap
+                    # (and not the first workplace after) is arbitrary: it only matters that we do so consistently
+                    intrplt_pers_seq.insert(0, pers_seq[i][:5] + [int(pers_seq[i][5]) + 1] + pers_seq[i][5:])
+
+                # CASES (B) and (D)
+                # we're missing two years, i.e. the year difference between two consecutive person-years is 3
+                if year_diff == 3:
+                    # same as above; insert two person-years with the missing years and the departure workplace
+                    intrplt_pers_seq.insert(0, pers_seq[i][:5] + [int(pers_seq[i][5]) + 1] + pers_seq[i][5:])
+                    intrplt_pers_seq.insert(0, pers_seq[i][:5] + [int(pers_seq[i][5]) + 2] + pers_seq[i][5:])
+
+            # sort the new person-sequence by year
+            intrplt_pers_seq.sort(key=operator.itemgetter(5))
+
+            # update the change log with a side-by-side of the old and new person-sequences
+            for idx, py in enumerate(intrplt_pers_seq):
+                if idx < len(pers_seq):
+                    change_log.append(pers_seq[idx][1:3] + pers_seq[idx][4:6] + ['', ''] +
+                                      py[1:3] + py[4:6])
+                else:
+                    change_log.append(6 * [''] + py[1:3] + py[4:6])
+
+            # add the person-sequence with interpolated years to the new list
+            interpolated_distinct_persons.append(intrplt_pers_seq)
+
+            # update the counter of interpolated person years
+            interpolation_counter += len(intrplt_pers_seq) - len(pers_seq)
+
+            # and go on to the next person
+            continue
+
+        else:  # there's no 1-2 year gap
+
+            # add the person-sequence to the new list as is
+            interpolated_distinct_persons.append(pers_seq)
+
+    #  print and save some diagnostics
+
+    print("NUMBER OF PERSON-YEARS ADDED: ", interpolation_counter)
+
+    change_log.append(['\n'])
+    change_log.append(["NUMBER OF PERSON-YEARS ADDED: ", interpolation_counter])
+    change_log.append(['\n'])
+
+    # and return the list of person, completed with the interpolated person-years
+    return interpolated_distinct_persons
 
 
 def unique_person_ids(distinct_persons):
@@ -565,3 +688,23 @@ if __name__ == '__main__':
     pers_yr_table = pd.read_csv('test/test_person_years_table.csv')
     pers_yr_table = pers_yr_table.values.tolist()
     pids(pers_yr_table, 'test')
+
+'''
+if pers_seq[i][4] == pers_seq[i+1][4]:  # person_year[4] == workplace
+    # insert a person_year with the existing workplace and missing year
+    new_person_sequence.insert(i, pers_seq[i][:5] + [int(pers_seq[i][5]) + 1] + pers_seq[i][5:])
+
+# CASE (C), CHANGE IN WORKPLACE
+if pers_seq[i][4] != pers_seq[i+1][4]:  # person_year[4] == workplace
+    # insert a person_year with the DEPARTURE workplace and missing year
+    # using the departure workplace for interpolation is arbitrary, it only matters
+    # that we apply this choice consistently
+    new_person_sequence.insert(i, pers_seq[i][:5] + [int(pers_seq[i][5]) + 1] + pers_seq[i][5:])
+    
+    [print(person) for person in person_sequences]
+    print(len(person_sequences))
+    print('------------------------------------------')
+    [print(person) for person in distinct_persons]
+    print(len(distinct_persons))
+    
+'''
